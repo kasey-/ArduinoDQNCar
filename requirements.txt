@@ -1,0 +1,6 @@
+numpy
+pygame
+pymunk
+keras
+gym
+theano
