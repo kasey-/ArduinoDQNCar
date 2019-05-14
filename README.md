@@ -1,6 +1,6 @@
 # ArduinoDQNCar
 
-... to do ...
+You will find here the code for a series of posts following up on running neural networks on an Arduino and pushing the concept furthermore by training first the neural network in a simulator then loading it to an Arduino and refining the training in vivo (my living room).
 
 ## How to use it
 
@@ -8,15 +8,19 @@
 
 ## Sources & Acknowledgments
 
-... to do ...
+This project relies on the code and articles written by:
+
+ * http://deeplizard.com/learn/video/nyjbcRQ-uQ8
+ * https://github.com/keon/deep-q-learning
+ * https://github.com/harvitronix/reinforcement-learning-car
 
 ## Todo
 
 ### Cleanup
 
- - [ ] Write the readme description and add github tags to the project
- - [ ] Add references to used source code and licence repository
- - [ ] Organize folders (Python, Dataset, Tinn, Articles Steps, Pictures, etc...)
+ - [x] Write the readme description and add github tags to the project
+ - [x] Add references to used source code and licence repository
+ - [x] Organize folders (Python, Dataset, Tinn, Articles Steps, Pictures, etc...)
  - [ ] Split python simulator for DQN code
 
 ### Get it working

@@ -1,3 +1,12 @@
+# Original Sources: 
+# * https://github.com/harvitronix/reinforcement-learning-car
+# * https://github.com/keon/deep-q-learning
+
+from collections import deque
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
+
 import random
 import math
 import numpy as np
@@ -10,9 +19,10 @@ import pymunk
 from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
+EPISODES = 1000
+
 class GameState:
     def __init__(self):
-        self._running = True
 
         # Physics stuff.
         self.width = 1280
@@ -44,16 +54,8 @@ class GameState:
 
         # ML stuff.
         self.score = 0
-        self.logs = open('./session-'+datetime.today().strftime('%Y%m%d-%H%M%S')+'.log','x')
-    
-    def reset(self):
-        self.score = 0
         self.crashed = False
-        self.car_body.position = 100, 100 # /!\ todo: define globals
-        self.car_body.angle = 0.5
-        driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
-        self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
-
+    
     def create_fourLegs_obstacles(self, x, y, width, height):
         self.obstacles.append(self.create_obstacle(x, y, 10))
         self.obstacles.append(self.create_obstacle(x, y+height, 10))
@@ -71,6 +73,14 @@ class GameState:
         driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
         self.space.add(self.car_body, self.car_shape)
+
+    def reset_env(self):
+        self.score = 0
+        self.crashed = False
+        self.car_body.position = 100, 100 # /!\ todo: define globals
+        self.car_body.angle = 0.5
+        driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
+        self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
 
     def _add_boundaries(self):
         """
@@ -99,12 +109,12 @@ class GameState:
     def frame_step(self, action):
         if action == 0:  # Turn left.
             self.car_body.angle -= 0.2
-            self.score -= 0.2
+            self.score -= 1
         elif action == 1:  # Turn right.
             self.car_body.angle += 0.2
-            self.score -= 0.2
+            self.score -= 1
         else:
-            self.score += 1
+            self.score += 5
 
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.velocity = 50 * driving_direction
@@ -112,51 +122,26 @@ class GameState:
         # Update the screen and stuff.
         screen.fill(THECOLORS["black"])
         self.space.debug_draw(draw_options)
-        self.space.step(1./10)
+        self.space.step(1./2)
         pygame.display.flip()
         clock.tick()
 
         # Get the current location and the readings there.
-        x, y = self.car_body.position
-        readings = self.get_sonar_readings(x, y, self.car_body.angle)
+        readings = self.get_sonar_readings()
 
         # Handle car crash
         if self.car_is_crashed(readings):
             self.crashed = True
             self.score = -500
-            self.recover_from_crash(driving_direction)
+            #self.recover_from_crash(driving_direction)
         
-        self.log_action(readings, action)
-        return self.score, readings
+        return readings, self.score, self.crashed
 
-    def log_action(self, sensors, action):
-        motors = [1.0, 1.0]
-        if action == 0:
-            motors[0] = 0.5
-        elif action == 1:
-            motors[1] = 0.5
-
-        flat_sensors = ' '.join([str(s/39.0) for s in sensors])
-        log = "0.0 0.0 {} {} {}\n".format(flat_sensors, motors[0], motors[1])
-        print(log)
-        self.logs.write(log)
-
-    def sum_readings(self, readings):
-        """Sum the number of non-zero readings."""
-        tot = 0
-        for i in readings:
-            tot += i
-        return tot
-
-    def get_sonar_readings(self, x, y, angle):
+    def get_sonar_readings(self):
+        x, y  = self.car_body.position
+        angle = self.car_body.angle
         readings = []
-        """
-        Instead of using a grid of boolean(ish) sensors, sonar readings
-        simply return N "distance" readings, one for each sonar
-        we're simulating. The distance is a count of the first non-zero
-        reading starting at the object. For instance, if the fifth sensor
-        in a sonar "arm" is non-zero, then that arm returns a distance of 5.
-        """
+
         # Make our arms.
         arm_left_e = self.make_sonar_arm(x, y)
         arm_left_i = arm_left_e
@@ -176,20 +161,12 @@ class GameState:
         return readings
 
     def get_arm_distance(self, arm, x, y, angle, offset):
-        # Used to count the distance.
         i = 0
-
-        # Look at each point and see if we've hit something.
         for point in arm:
             i += 1
-
-            # Move the point to the right spot.
             rotated_p = self.get_rotated_point(
                 x, y, point[0], point[1], angle + offset
             )
-
-            # Check if we've hit something. Return the current i (distance)
-            # if we did.
             if rotated_p[0] <= 0 or rotated_p[1] <= 0 \
                     or rotated_p[0] >= self.width or rotated_p[1] >= self.height:
                 return i  # Sensor is off the screen.
@@ -197,10 +174,7 @@ class GameState:
                 obs = screen.get_at(rotated_p)
                 if self.get_track_or_not(obs) != 0:
                     return i
-
             pygame.draw.circle(screen, (255, 255, 255), (rotated_p), 2)
-
-        # Return the distance for the arm.
         return i
 
     def make_sonar_arm(self, x, y):
@@ -252,6 +226,57 @@ class GameState:
         else:
             return 1
 
+
+class DQNAgent:
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = deque(maxlen=2000)
+        self.gamma = 0.95    # discount rate
+        self.epsilon = 1.0  # exploration rate
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
+        self.learning_rate = 0.001
+        self.model = self._build_model()
+
+    def _build_model(self):
+        # Neural Net for Deep-Q learning Model
+        model = Sequential()
+        model.add(Dense(6, input_dim=self.state_size, activation='relu'))
+        model.add(Dense(4, activation='relu'))
+        model.add(Dense(self.action_size, activation='sigmoid'))
+        model.compile(loss='mse',
+                      optimizer=Adam(lr=self.learning_rate))
+        return model
+
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
+
+    def act(self, state):
+        if np.random.rand() <= self.epsilon:
+            return random.randrange(self.action_size)
+        act_values = self.model.predict(state)
+        return np.argmax(act_values[0])  # returns action
+
+    def replay(self, batch_size):
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            target = reward
+            if not done:
+                target = (reward + self.gamma *
+                          np.amax(self.model.predict(next_state)[0]))
+            target_f = self.model.predict(state)
+            target_f[0][action] = target
+            self.model.fit(state, target_f, epochs=1, verbose=0)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+
+    def load(self, name):
+        self.model.load_weights(name)
+
+    def save(self, name):
+        self.model.save_weights(name)
+
 if __name__ == "__main__":
     game_state = GameState()
     # PyGame init
@@ -262,20 +287,35 @@ if __name__ == "__main__":
 
     # Turn off alpha since we don't use it.
     screen.set_alpha(None)
+
+    # Create agent
+    done = False
+    batch_size = 32
+    agent = DQNAgent(5, 3)
     run = True
-    while run:
-        action = 2
-        action = random.choices([0,1,2],[0.1,0.1,0.8])[0]
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                run = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+
+    for e in range(EPISODES):
+        game_state.reset_env()
+        state = game_state.get_sonar_readings()
+        state = np.reshape(state, [1, 5])
+        for time in range(500):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
                     run = False
-                elif event.key == pygame.K_RIGHT:
-                    action = 0 
-                elif event.key == pygame.K_LEFT:
-                    action = 1
-        print(game_state.frame_step(action))
-    game_state.logs.close()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        run = False
+
+            action = agent.act(state)
+            next_state, reward, done = game_state.frame_step(action)
+            next_state = np.reshape(next_state, [1, 5])
+            #print(reward, done)
+            agent.remember(state, action, reward, next_state, done)
+            state = next_state
+            if done:
+                print("episode: {}/{}, score: {}, e: {:.2}"
+                      .format(e, EPISODES, time, agent.epsilon))
+                break
+            if len(agent.memory) > batch_size:
+                agent.replay(batch_size)
     pygame.quit()
