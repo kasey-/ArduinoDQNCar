@@ -14,8 +14,6 @@ import pymunk.pygame_util
 
 class GameState:
     def __init__(self):
-        self._running = True
-
         # Physics stuff.
         self.width = 1280
         self.height = 980
@@ -26,33 +24,37 @@ class GameState:
         self._add_boundaries()
 
         # Create some obstacles, semi-randomly.
-        # We'll create three and they'll move around to prevent over-fitting.
         self.obstacles = []
         self.obstacles.append(self.create_obstacle(100, 350, 20))
         self.obstacles.append(self.create_obstacle(700, 200, 30))
         self.obstacles.append(self.create_obstacle(600, 660, 50))
         self.obstacles.append(self.create_obstacle(900, 900, 50))
 
+        # create four chairs in line
         self.create_fourLegs_obstacles(300, 800, 120, 120)
         self.create_fourLegs_obstacles(450, 800, 120, 120)
         self.create_fourLegs_obstacles(600, 800, 120, 120)
         self.create_fourLegs_obstacles(750, 800, 120, 120)
 
+        # create sofa
         self.create_fourLegs_obstacles(500, 100, 300, 300)
         self.create_fourLegs_obstacles(820, 100, 300, 300)
 
         # Create Car
-        self.create_car(100, 100, 0.5)
+        self.car_init_x = 100
+        self.car_init_y = 100
+        self.car_init_r = 0.5
+        self.create_car(self.car_init_x, self.car_init_y, self.car_init_r)
 
         # ML stuff.
         self.score = 0
-        self.logs = open('./session-'+datetime.today().strftime('%Y%m%d-%H%M%S')+'.log','x')
+        self.crashed = False
     
     def reset(self):
         self.score = 0
         self.crashed = False
-        self.car_body.position = 100, 100 # /!\ todo: define globals
-        self.car_body.angle = 0.5
+        self.car_body.position = self.car_init_x, self.car_init_y
+        self.car_body.angle = self.car_init_r
         driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
 
@@ -75,10 +77,6 @@ class GameState:
         self.space.add(self.car_body, self.car_shape)
 
     def _add_boundaries(self):
-        """
-        Create the static bodies.
-        :return: None
-        """
         static_body = self.space.static_body
         static_lines = [pymunk.Segment(static_body, (1.0, 1.0), (self.width-1, 1.0),  1.0),
                         pymunk.Segment(static_body, (1.0, 1.0), (1.0, self.height-1), 1.0),
@@ -106,7 +104,7 @@ class GameState:
             self.car_body.angle += 0.2
             self.score -= 0.2
         else:
-            self.score += 1
+            self.score += 10
 
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.velocity = 50 * driving_direction
@@ -119,8 +117,7 @@ class GameState:
         clock.tick()
 
         # Get the current location and the readings there.
-        x, y = self.car_body.position
-        readings = self.get_sonar_readings(x, y, self.car_body.angle)
+        readings = self.get_sonar_readings()
 
         # Handle car crash
         if self.car_is_crashed(readings):
@@ -128,37 +125,13 @@ class GameState:
             self.score = -500
             self.recover_from_crash(driving_direction)
         
-        self.log_action(readings, action)
         return self.score, readings
 
-    def log_action(self, sensors, action):
-        motors = [1.0, 1.0]
-        if action == 0:
-            motors[0] = 0.5
-        elif action == 1:
-            motors[1] = 0.5
-
-        flat_sensors = ' '.join([str(s/39.0) for s in sensors])
-        log = "0.0 0.0 {} {} {}\n".format(flat_sensors, motors[0], motors[1])
-        print(log)
-        self.logs.write(log)
-
-    def sum_readings(self, readings):
-        """Sum the number of non-zero readings."""
-        tot = 0
-        for i in readings:
-            tot += i
-        return tot
-
-    def get_sonar_readings(self, x, y, angle):
+    def get_sonar_readings(self):
+        x, y = self.car_body.position
+        angle = self.car_body.angle
         readings = []
-        """
-        Instead of using a grid of boolean(ish) sensors, sonar readings
-        simply return N "distance" readings, one for each sonar
-        we're simulating. The distance is a count of the first non-zero
-        reading starting at the object. For instance, if the fifth sensor
-        in a sonar "arm" is non-zero, then that arm returns a distance of 5.
-        """
+
         # Make our arms.
         arm_left_e = self.make_sonar_arm(x, y)
         arm_left_i = arm_left_e
@@ -167,31 +140,23 @@ class GameState:
         arm_right_e = arm_left_e
 
         # Rotate them and get readings.
-        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 0.80))
-        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 0.40))
+        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 0.60))
+        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 0.30))
         readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0))
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.40))
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.80))
+        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.30))
+        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.60))
 
         pygame.display.update()
 
         return readings
 
     def get_arm_distance(self, arm, x, y, angle, offset):
-        # Used to count the distance.
         i = 0
-
-        # Look at each point and see if we've hit something.
         for point in arm:
             i += 1
-
-            # Move the point to the right spot.
             rotated_p = self.get_rotated_point(
                 x, y, point[0], point[1], angle + offset
             )
-
-            # Check if we've hit something. Return the current i (distance)
-            # if we did.
             if rotated_p[0] <= 0 or rotated_p[1] <= 0 \
                     or rotated_p[0] >= self.width or rotated_p[1] >= self.height:
                 return i  # Sensor is off the screen.
@@ -199,21 +164,15 @@ class GameState:
                 obs = screen.get_at(rotated_p)
                 if self.get_track_or_not(obs) != 0:
                     return i
-
             pygame.draw.circle(screen, (255, 255, 255), (rotated_p), 2)
-
-        # Return the distance for the arm.
         return i
 
     def make_sonar_arm(self, x, y):
-        spread = 10  # Default spread.
-        distance = 20  # Gap before first sensor.
+        spread = 10     # Default spread.
+        distance = 20   # Gap before first sensor.
         arm_points = []
-        # Make an arm. We build it flat because we'll rotate it about the
-        # center later.
-        for i in range(1, 40):
+        for i in range(1, 35):
             arm_points.append((distance + x + (spread * i), y))
-
         return arm_points
 
     def car_is_crashed(self, readings):
@@ -223,23 +182,19 @@ class GameState:
             return False
 
     def recover_from_crash(self, driving_direction):
-        """
-        We hit something, so recover.
-        """
         while self.crashed:
             # Go backwards.
             self.car_body.velocity = -100 * driving_direction
             self.crashed = False
             for i in range(10):
-                self.car_body.angle += .2  # Turn a little.
-                screen.fill(THECOLORS["grey7"])  # Red is scary!
+                self.car_body.angle += .2           # Turn a little.
+                screen.fill(THECOLORS["grey7"])     # Red is scary!
                 self.space.debug_draw(draw_options)
                 self.space.step(1./10)
                 pygame.display.flip()
                 clock.tick()
 
     def get_rotated_point(self, x_1, y_1, x_2, y_2, radians):
-        # Rotate x_2, y_2 around x_1, y_1 by angle.
         x_change = (x_2 - x_1) * math.cos(radians) + \
             (y_2 - y_1) * math.sin(radians)
         y_change = (y_1 - y_2) * math.cos(radians) - \
@@ -267,7 +222,6 @@ if __name__ == "__main__":
     run = True
     while run:
         action = 2
-        action = random.choices([0,1,2],[0.1,0.1,0.8])[0]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -279,5 +233,4 @@ if __name__ == "__main__":
                 elif event.key == pygame.K_LEFT:
                     action = 1
         print(game_state.frame_step(action))
-    game_state.logs.close()
     pygame.quit()
