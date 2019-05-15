@@ -15,13 +15,13 @@ import pymunk.pygame_util
 class GameState:
     def __init__(self):
         # Physics stuff.
-        self.width = 1280
+        self.width  = 1280
         self.height = 980
         self.space = pymunk.Space()
         self.space.gravity = pymunk.Vec2d(0.0, 0.0)
 
         # Create walls.
-        self._add_boundaries()
+        self.create_boundaries()
 
         # Create some obstacles, semi-randomly.
         self.obstacles = []
@@ -49,14 +49,6 @@ class GameState:
         # ML stuff.
         self.score = 0
         self.crashed = False
-    
-    def reset(self):
-        self.score = 0
-        self.crashed = False
-        self.car_body.position = self.car_init_x, self.car_init_y
-        self.car_body.angle = self.car_init_r
-        driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
-        self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
 
     def create_fourLegs_obstacles(self, x, y, width, height):
         self.obstacles.append(self.create_obstacle(x, y, 10))
@@ -76,7 +68,7 @@ class GameState:
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
         self.space.add(self.car_body, self.car_shape)
 
-    def _add_boundaries(self):
+    def create_boundaries(self):
         static_body = self.space.static_body
         static_lines = [pymunk.Segment(static_body, (1.0, 1.0), (self.width-1, 1.0),  1.0),
                         pymunk.Segment(static_body, (1.0, 1.0), (1.0, self.height-1), 1.0),
@@ -176,10 +168,10 @@ class GameState:
         return arm_points
 
     def car_is_crashed(self, readings):
-        if readings[0] == 1 or readings[1] == 1 or readings[2] == 1:
-            return True
-        else:
-            return False
+        for r in readings:
+            if r == 1:
+                return True
+        return False
 
     def recover_from_crash(self, driving_direction):
         while self.crashed:

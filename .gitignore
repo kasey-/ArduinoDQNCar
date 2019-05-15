@@ -1,10 +1,13 @@
-# MacOs and custom
+# Windows, MacOs and custom
 
 .DS_Store
 bin/
+tcl/
+Scripts/
 include/
 train
 .vscode/
+*.exe
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
