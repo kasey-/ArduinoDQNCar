@@ -5,6 +5,7 @@ bin/
 tcl/
 Scripts/
 include/
+venv/
 train
 .vscode/
 *.exe

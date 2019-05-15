@@ -19,7 +19,7 @@ import pymunk
 from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
-EPISODES = 1000
+EPISODES = 500
 
 class GameState:
     def __init__(self):
@@ -122,7 +122,7 @@ class GameState:
         # Update the screen and stuff.
         screen.fill(THECOLORS["black"])
         self.space.debug_draw(draw_options)
-        self.space.step(1./2)
+        self.space.step(1./5)
         pygame.display.flip()
         clock.tick()
 
@@ -132,7 +132,7 @@ class GameState:
         # Handle car crash
         if self.car_is_crashed(readings):
             self.crashed = True
-            self.score = -500
+            self.score -= 100
             #self.recover_from_crash(driving_direction)
         
         return readings, self.score, self.crashed
@@ -189,10 +189,10 @@ class GameState:
         return arm_points
 
     def car_is_crashed(self, readings):
-        if readings[0] == 1 or readings[1] == 1 or readings[2] == 1:
-            return True
-        else:
-            return False
+        for r in readings:
+            if r == 1.0:
+                return True
+        return False
 
     def recover_from_crash(self, driving_direction):
         """
@@ -234,16 +234,15 @@ class DQNAgent:
         self.memory = deque(maxlen=2000)
         self.gamma = 0.95    # discount rate
         self.epsilon = 1.0  # exploration rate
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
-        self.learning_rate = 0.001
+        self.epsilon_min = 0.1
+        self.epsilon_decay = 0.9995
+        self.learning_rate = 0.1
         self.model = self._build_model()
 
     def _build_model(self):
         # Neural Net for Deep-Q learning Model
         model = Sequential()
         model.add(Dense(6, input_dim=self.state_size, activation='relu'))
-        model.add(Dense(4, activation='relu'))
         model.add(Dense(self.action_size, activation='sigmoid'))
         model.compile(loss='mse',
                       optimizer=Adam(lr=self.learning_rate))
@@ -298,7 +297,8 @@ if __name__ == "__main__":
         game_state.reset_env()
         state = game_state.get_sonar_readings()
         state = np.reshape(state, [1, 5])
-        for time in range(500):
+        survived = True
+        for time in range(10+e):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     run = False
@@ -314,8 +314,12 @@ if __name__ == "__main__":
             state = next_state
             if done:
                 print("episode: {}/{}, score: {}, e: {:.2}"
-                      .format(e, EPISODES, time, agent.epsilon))
+                      .format(e, EPISODES, reward, agent.epsilon))
+                survived = False
                 break
             if len(agent.memory) > batch_size:
                 agent.replay(batch_size)
+        if survived:
+            print("episode: {}/{}, score: {}, e: {:.2} (survived)"
+                      .format(e, EPISODES, reward, agent.epsilon))
     pygame.quit()

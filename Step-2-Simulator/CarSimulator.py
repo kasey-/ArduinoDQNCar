@@ -104,7 +104,7 @@ class GameState:
         # Update the screen and stuff.
         screen.fill(THECOLORS["black"])
         self.space.debug_draw(draw_options)
-        self.space.step(1./10)
+        self.space.step(1./25)
         pygame.display.flip()
         clock.tick()
 
