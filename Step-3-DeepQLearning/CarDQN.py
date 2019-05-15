@@ -20,6 +20,7 @@ from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
 EPISODES = 500
+STEPS = 250
 
 class GameState:
     def __init__(self):
@@ -31,7 +32,7 @@ class GameState:
         self.space.gravity = pymunk.Vec2d(0.0, 0.0)
 
         # Create walls.
-        self._add_boundaries()
+        self.create_boundaries()
 
         # Create some obstacles, semi-randomly.
         # We'll create three and they'll move around to prevent over-fitting.
@@ -50,7 +51,10 @@ class GameState:
         self.create_fourLegs_obstacles(820, 100, 300, 300)
 
         # Create Car
-        self.create_car(100, 100, 0.5)
+        self.car_init_x = 1000
+        self.car_init_y = 600
+        self.car_init_r = 3.1456/2
+        self.create_car()
 
         # ML stuff.
         self.score = 0
@@ -62,31 +66,34 @@ class GameState:
         self.obstacles.append(self.create_obstacle(x+width, y, 10))
         self.obstacles.append(self.create_obstacle(x+width, y+height, 10))
 
-    def create_car(self, x, y, r):
+    def create_car(self):
         inertia = pymunk.moment_for_circle(1.0, 0.0, 25.0, (0.0, 0.0))
         self.car_body = pymunk.Body(1, inertia)
-        self.car_body.position = x, y
+        self.car_body.position = self.car_init_x, self.car_init_y
         self.car_shape = pymunk.Circle(self.car_body, 25.0)
         self.car_shape.color = THECOLORS["green"]
         self.car_shape.elasticity = 1.0
-        self.car_body.angle = r
+        self.car_body.angle = self.car_init_r
         driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
         self.space.add(self.car_body, self.car_shape)
 
     def reset_env(self):
+        # random pop
+        pop_sites = [[300,300],[200,500],[1000,600]]
+        pop_site = random.choice(pop_sites)
+
+        new_x = pop_site[0] + random.randrange(-100, +100, 1)
+        new_y = pop_site[1] + random.randrange(-100, +100, 1)
+        new_r = random.randrange(-31456, 31456) / 10000.0
         self.score = 0
         self.crashed = False
-        self.car_body.position = 100, 100 # /!\ todo: define globals
-        self.car_body.angle = 0.5
+        self.car_body.position = new_x, new_y
+        self.car_body.angle = new_r
         driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
 
-    def _add_boundaries(self):
-        """
-        Create the static bodies.
-        :return: None
-        """
+    def create_boundaries(self):
         static_body = self.space.static_body
         static_lines = [pymunk.Segment(static_body, (1.0, 1.0), (self.width-1, 1.0),  1.0),
                         pymunk.Segment(static_body, (1.0, 1.0), (1.0, self.height-1), 1.0),
@@ -109,12 +116,12 @@ class GameState:
     def frame_step(self, action):
         if action == 0:  # Turn left.
             self.car_body.angle -= 0.2
-            self.score -= 1
+            self.score -= 0.5
         elif action == 1:  # Turn right.
             self.car_body.angle += 0.2
-            self.score -= 1
+            self.score -= 0.5
         else:
-            self.score += 5
+            self.score += 0.5
 
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.velocity = 50 * driving_direction
@@ -133,7 +140,6 @@ class GameState:
         if self.car_is_crashed(readings):
             self.crashed = True
             self.score -= 100
-            #self.recover_from_crash(driving_direction)
         
         return readings, self.score, self.crashed
 
@@ -181,8 +187,7 @@ class GameState:
         spread = 10  # Default spread.
         distance = 20  # Gap before first sensor.
         arm_points = []
-        # Make an arm. We build it flat because we'll rotate it about the
-        # center later.
+        # Make an arm. We build it flat because we'll rotate it about the center later.
         for i in range(1, 40):
             arm_points.append((distance + x + (spread * i), y))
 
@@ -193,22 +198,6 @@ class GameState:
             if r == 1.0:
                 return True
         return False
-
-    def recover_from_crash(self, driving_direction):
-        """
-        We hit something, so recover.
-        """
-        while self.crashed:
-            # Go backwards.
-            self.car_body.velocity = -100 * driving_direction
-            self.crashed = False
-            for i in range(10):
-                self.car_body.angle += .2  # Turn a little.
-                screen.fill(THECOLORS["grey7"])  # Red is scary!
-                self.space.debug_draw(draw_options)
-                self.space.step(1./10)
-                pygame.display.flip()
-                clock.tick()
 
     def get_rotated_point(self, x_1, y_1, x_2, y_2, radians):
         # Rotate x_2, y_2 around x_1, y_1 by angle.
@@ -233,7 +222,7 @@ class DQNAgent:
         self.action_size = action_size
         self.memory = deque(maxlen=2000)
         self.gamma = 0.95    # discount rate
-        self.epsilon = 1.0  # exploration rate
+        self.epsilon = 1.0   # exploration rate
         self.epsilon_min = 0.1
         self.epsilon_decay = 0.9995
         self.learning_rate = 0.1
@@ -244,8 +233,7 @@ class DQNAgent:
         model = Sequential()
         model.add(Dense(6, input_dim=self.state_size, activation='relu'))
         model.add(Dense(self.action_size, activation='sigmoid'))
-        model.compile(loss='mse',
-                      optimizer=Adam(lr=self.learning_rate))
+        model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
         return model
 
     def remember(self, state, action, reward, next_state, done):
@@ -262,8 +250,7 @@ class DQNAgent:
         for state, action, reward, next_state, done in minibatch:
             target = reward
             if not done:
-                target = (reward + self.gamma *
-                          np.amax(self.model.predict(next_state)[0]))
+                target = (reward + self.gamma * np.amax(self.model.predict(next_state)[0]))
             target_f = self.model.predict(state)
             target_f[0][action] = target
             self.model.fit(state, target_f, epochs=1, verbose=0)
@@ -281,45 +268,48 @@ if __name__ == "__main__":
     # PyGame init
     pygame.init()
     screen = pygame.display.set_mode((game_state.width, game_state.height))
-    clock = pygame.time.Clock()
+    clock  = pygame.time.Clock()
     draw_options = pymunk.pygame_util.DrawOptions(screen)
 
     # Turn off alpha since we don't use it.
     screen.set_alpha(None)
 
     # Create agent
-    done = False
-    batch_size = 32
-    agent = DQNAgent(5, 3)
-    run = True
+    batch_size  = 32
+    input_size  = 5
+    output_size = 3
+    done  = False
+    agent = DQNAgent(input_size, output_size)
 
     for e in range(EPISODES):
         game_state.reset_env()
         state = game_state.get_sonar_readings()
-        state = np.reshape(state, [1, 5])
+        state = np.reshape(state, [1, input_size])
         survived = True
-        for time in range(10+e):
+        for time in range(STEPS):            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    run = False
+                    pygame.quit()
+                    quit()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        run = False
+                        pygame.quit()
+                        quit()
 
             action = agent.act(state)
             next_state, reward, done = game_state.frame_step(action)
-            next_state = np.reshape(next_state, [1, 5])
-            #print(reward, done)
+            next_state = np.reshape(next_state, [1, input_size])
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             if done:
-                print("episode: {}/{}, score: {}, e: {:.2}"
-                      .format(e, EPISODES, reward, agent.epsilon))
+                print("episode: {}/{}, score: {}, steps: {}, e: {:.2} (died)"
+                      .format(e, EPISODES, int(reward), time, agent.epsilon))
                 survived = False
                 break
             if len(agent.memory) > batch_size:
                 agent.replay(batch_size)
         if survived:
-            print("episode: {}/{}, score: {}, e: {:.2} (survived)"
-                      .format(e, EPISODES, reward, agent.epsilon))
-    pygame.quit()
+            print("episode: {}/{}, score: {}, steps: {}, e: {:.2}"
+                      .format(e, EPISODES, int(reward), time, agent.epsilon))
+        if e % 10 == 0:
+            agent.save("models/{}_{}.model".format(e, int(reward)))
