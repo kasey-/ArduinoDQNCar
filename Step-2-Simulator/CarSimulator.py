@@ -41,9 +41,9 @@ class GameState:
         self.create_fourLegs_obstacles(820, 100, 300, 300)
 
         # Create Car
-        self.car_init_x = 100
-        self.car_init_y = 100
-        self.car_init_r = 0.5
+        self.car_init_x = 300
+        self.car_init_y = 300
+        self.car_init_r = 3.1456/2
         self.create_car(self.car_init_x, self.car_init_y, self.car_init_r)
 
         # ML stuff.
@@ -114,7 +114,7 @@ class GameState:
         # Handle car crash
         if self.car_is_crashed(readings):
             self.crashed = True
-            self.score = -500
+            self.score -= 500
             self.recover_from_crash(driving_direction)
         
         return self.score, readings
@@ -132,11 +132,11 @@ class GameState:
         arm_right_e = arm_left_e
 
         # Rotate them and get readings.
-        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 0.60))
-        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 0.30))
-        readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0))
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.30))
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.60))
+        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 3.1456/3.0))
+        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 3.1456/6.0))
+        readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0.0))
+        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -3.1456/6.0))
+        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -3.1456/3.0))
 
         pygame.display.update()
 
@@ -169,7 +169,7 @@ class GameState:
 
     def car_is_crashed(self, readings):
         for r in readings:
-            if r == 1:
+            if r <= 1:
                 return True
         return False
 
