@@ -132,11 +132,12 @@ class GameState:
         arm_right_e = arm_left_e
 
         # Rotate them and get readings.
-        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 3.1456/3.0))
-        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 3.1456/6.0))
-        readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0.0))
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -3.1456/6.0))
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -3.1456/3.0))
+        pi = 3.14159265359
+        readings.append(self.get_arm_distance(arm_left_e,  x, y, angle,  pi/3.0))
+        readings.append(self.get_arm_distance(arm_left_i,  x, y, angle,  pi/6.0))
+        readings.append(self.get_arm_distance(arm_middle,  x, y, angle,  0.0))
+        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -pi/6.0))
+        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -pi/3.0))
 
         pygame.display.update()
 
