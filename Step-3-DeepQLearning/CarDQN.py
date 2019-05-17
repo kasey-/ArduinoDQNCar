@@ -19,8 +19,14 @@ import pymunk
 from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
+PENALTY_TURN  = 50.0
+PENALTY_DIST  = 0.5
+PENALTY_CRASH = 500.0
+BONUS_MOVE    = 0.1
+BATCH_SIZE    = 64
+
 EPISODES = 500
-STEPS = 250
+STEPS    = 250
 
 class GameState:
     def __init__(self):
@@ -116,12 +122,12 @@ class GameState:
     def frame_step(self, action):
         if action == 0:  # Turn left.
             self.car_body.angle -= 0.2
-            self.score -= 0.5
+            self.score -= PENALTY_TURN
         elif action == 1:  # Turn right.
             self.car_body.angle += 0.2
-            self.score -= 0.5
+            self.score -= PENALTY_TURN
         else:
-            self.score += 0.5
+            self.score += BONUS_MOVE
 
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.velocity = 50 * driving_direction
@@ -129,17 +135,21 @@ class GameState:
         # Update the screen and stuff.
         screen.fill(THECOLORS["black"])
         self.space.debug_draw(draw_options)
-        self.space.step(1./5)
+        self.space.step(1./4.0)
         pygame.display.flip()
         clock.tick()
 
         # Get the current location and the readings there.
         readings = self.get_sonar_readings()
+        for r in readings:
+            self.score += r/39.0 - PENALTY_DIST
+            #print("Reading penalty {}".format(r/39.0 - 1))
 
         # Handle car crash
         if self.car_is_crashed(readings):
             self.crashed = True
-            self.score -= 100
+            self.score -= PENALTY_CRASH
+            #print("Crash penalty -100.0")
         
         return readings, self.score, self.crashed
 
@@ -220,7 +230,7 @@ class DQNAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=10000)
         self.gamma = 0.95    # discount rate
         self.epsilon = 1.0   # exploration rate
         self.epsilon_min = 0.1
@@ -232,6 +242,7 @@ class DQNAgent:
         # Neural Net for Deep-Q learning Model
         model = Sequential()
         model.add(Dense(6, input_dim=self.state_size, activation='relu'))
+        model.add(Dense(4, activation='relu'))
         model.add(Dense(self.action_size, activation='sigmoid'))
         model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
         return model
@@ -275,7 +286,7 @@ if __name__ == "__main__":
     screen.set_alpha(None)
 
     # Create agent
-    batch_size  = 32
+    batch_size  = BATCH_SIZE
     input_size  = 5
     output_size = 3
     done  = False
@@ -302,7 +313,7 @@ if __name__ == "__main__":
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             if done:
-                print("episode: {}/{}, score: {}, steps: {}, e: {:.2} (died)"
+                print("episode: {}/{}, score: {}, steps: {}, e: {:.2} (crash)"
                       .format(e, EPISODES, int(reward), time, agent.epsilon))
                 survived = False
                 break
