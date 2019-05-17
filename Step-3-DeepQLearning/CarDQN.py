@@ -6,6 +6,9 @@ from collections import deque
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.optimizers import Adam
+from keras import backend as K
+
+import tensorflow as tf
 
 import random
 import math
@@ -19,14 +22,14 @@ import pymunk
 from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
-PENALTY_TURN  = 50.0
+PENALTY_TURN  = 1.0
 PENALTY_DIST  = 0.5
 PENALTY_CRASH = 500.0
-BONUS_MOVE    = 0.1
+BONUS_MOVE    = 0.5
 BATCH_SIZE    = 64
 
-EPISODES = 500
-STEPS    = 250
+EPISODES = 1000
+STEPS    = 500
 
 class GameState:
     def __init__(self):
@@ -142,7 +145,7 @@ class GameState:
         # Get the current location and the readings there.
         readings = self.get_sonar_readings()
         for r in readings:
-            self.score += r/39.0 - PENALTY_DIST
+            self.score += (r - PENALTY_DIST) / 5.0
             #print("Reading penalty {}".format(r/39.0 - 1))
 
         # Handle car crash
@@ -166,11 +169,11 @@ class GameState:
         arm_right_e = arm_left_e
 
         # Rotate them and get readings.
-        readings.append(self.get_arm_distance(arm_left_e, x, y, angle, 0.80))
-        readings.append(self.get_arm_distance(arm_left_i, x, y, angle, 0.40))
-        readings.append(self.get_arm_distance(arm_middle, x, y, angle, 0))
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.40))
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.80))
+        readings.append(self.get_arm_distance(arm_left_e, x, y, angle,   0.80) / 39.0)
+        readings.append(self.get_arm_distance(arm_left_i, x, y, angle,   0.40) / 39.0)
+        readings.append(self.get_arm_distance(arm_middle, x, y, angle,   0.00) / 39.0)
+        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.40) / 39.0)
+        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.80) / 39.0)
 
         pygame.display.update()
 
@@ -205,7 +208,7 @@ class GameState:
 
     def car_is_crashed(self, readings):
         for r in readings:
-            if r == 1.0:
+            if r * 39.0 <= 1.0:
                 return True
         return False
 
@@ -233,19 +236,39 @@ class DQNAgent:
         self.memory = deque(maxlen=10000)
         self.gamma = 0.95    # discount rate
         self.epsilon = 1.0   # exploration rate
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0.01
         self.epsilon_decay = 0.9995
-        self.learning_rate = 0.1
+        self.learning_rate = 0.01
         self.model = self._build_model()
+        self.target_model = self._build_model()
+        self.update_target_model()
 
+    """Huber loss for Q Learning
+
+    References: https://en.wikipedia.org/wiki/Huber_loss
+                https://www.tensorflow.org/api_docs/python/tf/losses/huber_loss
+    """
+
+    def _huber_loss(self, y_true, y_pred, clip_delta=1.0):
+        error = y_true - y_pred
+        cond  = K.abs(error) <= clip_delta
+
+        squared_loss = 0.5 * K.square(error)
+        quadratic_loss = 0.5 * K.square(clip_delta) + clip_delta * (K.abs(error) - clip_delta)
+
+        return K.mean(tf.where(cond, squared_loss, quadratic_loss))
     def _build_model(self):
         # Neural Net for Deep-Q learning Model
         model = Sequential()
         model.add(Dense(6, input_dim=self.state_size, activation='relu'))
         model.add(Dense(4, activation='relu'))
-        model.add(Dense(self.action_size, activation='sigmoid'))
-        model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
+        model.add(Dense(self.action_size, activation='linear'))
+        model.compile(loss=self._huber_loss, optimizer=Adam(lr=self.learning_rate))
         return model
+
+    def update_target_model(self):
+        # copy weights from model to target_model
+        self.target_model.set_weights(self.model.get_weights())
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -254,17 +277,19 @@ class DQNAgent:
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
         act_values = self.model.predict(state)
+        #print(state, np.argmax(act_values[0]), act_values[0])
         return np.argmax(act_values[0])  # returns action
 
     def replay(self, batch_size):
         minibatch = random.sample(self.memory, batch_size)
         for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                target = (reward + self.gamma * np.amax(self.model.predict(next_state)[0]))
-            target_f = self.model.predict(state)
-            target_f[0][action] = target
-            self.model.fit(state, target_f, epochs=1, verbose=0)
+            target = self.model.predict(state)
+            if done:
+                target[0][action] = reward
+            else:
+                t = self.target_model.predict(next_state)[0]
+                target[0][action] = reward + self.gamma * np.amax(t)
+            self.model.fit(state, target, epochs=1, verbose=0)
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
@@ -291,6 +316,8 @@ if __name__ == "__main__":
     output_size = 3
     done  = False
     agent = DQNAgent(input_size, output_size)
+    #agent.load("models/490_-690.model")
+    #agent.epsilon = 0.0
 
     for e in range(EPISODES):
         game_state.reset_env()
@@ -313,14 +340,18 @@ if __name__ == "__main__":
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             if done:
-                print("episode: {}/{}, score: {}, steps: {}, e: {:.2} (crash)"
-                      .format(e, EPISODES, int(reward), time, agent.epsilon))
+                agent.update_target_model()
+                if time == 0:
+                    time = 1
+                print("{}\t{}\t{}\t{:.2f}\t{:.2}\tcrash"
+                      .format(e, int(reward), time, float(reward/time), agent.epsilon))
                 survived = False
                 break
             if len(agent.memory) > batch_size:
                 agent.replay(batch_size)
         if survived:
-            print("episode: {}/{}, score: {}, steps: {}, e: {:.2}"
-                      .format(e, EPISODES, int(reward), time, agent.epsilon))
+            time = STEPS
+            print("{}\t{}\t{}\t{:.2f}\t{:.2}\tcrash"
+                    .format(e, int(reward), time, float(reward/time), agent.epsilon))
         if e % 10 == 0:
             agent.save("models/{}_{}.model".format(e, int(reward)))
