@@ -7,8 +7,7 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.optimizers import Adam
 from keras import backend as K
-
-import tensorflow as tf
+import time
 
 import random
 import math
@@ -35,10 +34,13 @@ class GameState:
     def __init__(self):
 
         # Physics stuff.
+        self.render = True
         self.width = 1280
         self.height = 980
         self.space = pymunk.Space()
         self.space.gravity = pymunk.Vec2d(0.0, 0.0)
+        handler = self.space.add_default_collision_handler()
+        handler.begin = self.handle_collision
 
         # Create walls.
         self.create_boundaries()
@@ -49,7 +51,7 @@ class GameState:
         self.obstacles.append(self.create_obstacle(100, 350, 20))
         self.obstacles.append(self.create_obstacle(700, 200, 30))
         self.obstacles.append(self.create_obstacle(600, 660, 50))
-        self.obstacles.append(self.create_obstacle(900, 900, 50))
+        self.obstacles.append(self.create_obstacle(950, 900, 50))
 
         self.create_fourLegs_obstacles(300, 800, 120, 120)
         self.create_fourLegs_obstacles(450, 800, 120, 120)
@@ -68,7 +70,12 @@ class GameState:
         # ML stuff.
         self.score = 0
         self.crashed = False
-    
+
+    def handle_collision(self, arbiter, space, data):
+            self.crashed = True
+            self.score -= PENALTY_CRASH
+            return True
+
     def create_fourLegs_obstacles(self, x, y, width, height):
         self.obstacles.append(self.create_obstacle(x, y, 10))
         self.obstacles.append(self.create_obstacle(x, y+height, 10))
@@ -95,6 +102,7 @@ class GameState:
         new_x = pop_site[0] + random.randrange(-100, +100, 1)
         new_y = pop_site[1] + random.randrange(-100, +100, 1)
         new_r = random.randrange(-31456, 31456) / 10000.0
+
         self.score = 0
         self.crashed = False
         self.car_body.position = new_x, new_y
@@ -138,8 +146,9 @@ class GameState:
         # Update the screen and stuff.
         screen.fill(THECOLORS["black"])
         self.space.debug_draw(draw_options)
-        self.space.step(1./4.0)
-        pygame.display.flip()
+        self.space.step(1./10.0)
+        if self.render:
+            pygame.display.flip()
         clock.tick()
 
         # Get the current location and the readings there.
@@ -148,34 +157,39 @@ class GameState:
             self.score += (r - PENALTY_DIST) / 5.0
             #print("Reading penalty {}".format(r/39.0 - 1))
 
-        # Handle car crash
-        if self.car_is_crashed(readings):
-            self.crashed = True
-            self.score -= PENALTY_CRASH
-            #print("Crash penalty -100.0")
-        
         return readings, self.score, self.crashed
 
     def get_sonar_readings(self):
-        x, y  = self.car_body.position
+        x, y = self.car_body.position
         angle = self.car_body.angle
         readings = []
+        readings_tmp = []
 
-        # Make our arms.
-        arm_left_e = self.make_sonar_arm(x, y)
-        arm_left_i = arm_left_e
-        arm_middle = arm_left_e
-        arm_right_i = arm_left_e
-        arm_right_e = arm_left_e
+        # Make our arm
+        arm = self.make_sonar_arm(x, y)
 
         # Rotate them and get readings.
-        readings.append(self.get_arm_distance(arm_left_e, x, y, angle,   0.80) / 39.0)
-        readings.append(self.get_arm_distance(arm_left_i, x, y, angle,   0.40) / 39.0)
-        readings.append(self.get_arm_distance(arm_middle, x, y, angle,   0.00) / 39.0)
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -0.40) / 39.0)
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -0.80) / 39.0)
+        pi = 3.14159265359
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/2.5))    # 0
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/3.0))    # 1
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/4.0))    # 2
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/6.0))    # 3
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/13.0))   # 4
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  0.0))       # 5
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/13.0))  # 6
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/6.0))   # 7
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/4.0))   # 8
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/3.0))   # 9
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/2.5))   # 10
 
-        pygame.display.update()
+        readings.append(np.min(readings_tmp[0:3])/39.0)
+        readings.append(np.min(readings_tmp[2:5])/39.0)
+        readings.append(np.min(readings_tmp[4:7])/39.0)
+        readings.append(np.min(readings_tmp[6:9])/39.0)
+        readings.append(np.min(readings_tmp[8:])/39.0)
+
+        if self.render:
+            pygame.display.update()
 
         return readings
 
@@ -205,12 +219,6 @@ class GameState:
             arm_points.append((distance + x + (spread * i), y))
 
         return arm_points
-
-    def car_is_crashed(self, readings):
-        for r in readings:
-            if r * 39.0 <= 1.0:
-                return True
-        return False
 
     def get_rotated_point(self, x_1, y_1, x_2, y_2, radians):
         # Rotate x_2, y_2 around x_1, y_1 by angle.
@@ -243,27 +251,13 @@ class DQNAgent:
         self.target_model = self._build_model()
         self.update_target_model()
 
-    """Huber loss for Q Learning
-
-    References: https://en.wikipedia.org/wiki/Huber_loss
-                https://www.tensorflow.org/api_docs/python/tf/losses/huber_loss
-    """
-
-    def _huber_loss(self, y_true, y_pred, clip_delta=1.0):
-        error = y_true - y_pred
-        cond  = K.abs(error) <= clip_delta
-
-        squared_loss = 0.5 * K.square(error)
-        quadratic_loss = 0.5 * K.square(clip_delta) + clip_delta * (K.abs(error) - clip_delta)
-
-        return K.mean(tf.where(cond, squared_loss, quadratic_loss))
     def _build_model(self):
         # Neural Net for Deep-Q learning Model
         model = Sequential()
-        model.add(Dense(6, input_dim=self.state_size, activation='relu'))
-        model.add(Dense(4, activation='relu'))
+        model.add(Dense(32, input_dim=self.state_size, activation='relu'))
+        model.add(Dense(32, activation='relu'))
         model.add(Dense(self.action_size, activation='linear'))
-        model.compile(loss=self._huber_loss, optimizer=Adam(lr=self.learning_rate))
+        model.compile(loss='logcosh', optimizer=Adam(lr=self.learning_rate))
         return model
 
     def update_target_model(self):
@@ -324,7 +318,7 @@ if __name__ == "__main__":
         state = game_state.get_sonar_readings()
         state = np.reshape(state, [1, input_size])
         survived = True
-        for time in range(STEPS):            
+        for s in range(STEPS):            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -333,6 +327,12 @@ if __name__ == "__main__":
                     if event.key == pygame.K_ESCAPE:
                         pygame.quit()
                         quit()
+                    if event.key == pygame.K_r:
+                        game_state.render = False if game_state.render else True
+                    if event.key == pygame.K_s:
+                        agent.save("models/{}.model".format(e))
+                    if event.key == pygame.K_f:
+                        time.sleep(30)
 
             action = agent.act(state)
             next_state, reward, done = game_state.frame_step(action)
@@ -341,17 +341,17 @@ if __name__ == "__main__":
             state = next_state
             if done:
                 agent.update_target_model()
-                if time == 0:
-                    time = 1
+                if s == 0:
+                    s = 1
                 print("{}\t{}\t{}\t{:.2f}\t{:.2}\tcrash"
-                      .format(e, int(reward), time, float(reward/time), agent.epsilon))
+                      .format(e, int(reward), s, float(reward/s), agent.epsilon))
                 survived = False
                 break
             if len(agent.memory) > batch_size:
                 agent.replay(batch_size)
         if survived:
-            time = STEPS
-            print("{}\t{}\t{}\t{:.2f}\t{:.2}\tcrash"
-                    .format(e, int(reward), time, float(reward/time), agent.epsilon))
+            s = STEPS
+            print("{}\t{}\t{}\t{:.2f}\t{:.2}"
+                    .format(e, int(reward), s, float(reward/s), agent.epsilon))
         if e % 10 == 0:
             agent.save("models/{}_{}.model".format(e, int(reward)))
