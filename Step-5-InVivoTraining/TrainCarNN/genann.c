@@ -71,7 +71,7 @@ double inline genann_act_sigmoid(const genann *ann unused, double a) {
 
 double inline genann_act_relu(const struct genann *ann unused, double a) {
     if(a <= 0.0)
-        return 0.0;
+        return a*0.0001;
     else
         return a;
 }
@@ -380,3 +380,5 @@ void genann_write(genann const *ann, FILE *out) {
         fprintf(out, " %.10f", ann->weight[i]);
     }
 }
+
+

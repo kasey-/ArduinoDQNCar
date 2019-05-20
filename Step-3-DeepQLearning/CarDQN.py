@@ -21,13 +21,13 @@ import pymunk
 from pymunk.vec2d import Vec2d
 import pymunk.pygame_util
 
-PENALTY_TURN  = 1.0
-PENALTY_DIST  = 0.5
+PENALTY_TURN  = 0.8
+PENALTY_DIST  = 0.7
 PENALTY_CRASH = 500.0
 BONUS_MOVE    = 0.5
-BATCH_SIZE    = 64
+BATCH_SIZE    = 128
 
-EPISODES = 1000
+EPISODES = 10000
 STEPS    = 500
 
 class GameState:
@@ -272,6 +272,14 @@ class DQNAgent:
             return random.randrange(self.action_size)
         act_values = self.model.predict(state)
         #print(state, np.argmax(act_values[0]), act_values[0])
+        out = [0.5,0.5]
+        if np.argmax(act_values[0]) == 0:
+            out = [1.0,0.5]
+        elif np.argmax(act_values[0]) == 1:
+            out = [0.5,1.0]
+        else:
+            out = [1.0,1.0]
+        #print(state[0][0],state[0][1],state[0][2],state[0][3],state[0][4], 0.0, 0.0, out[0], out[1])
         return np.argmax(act_values[0])  # returns action
 
     def replay(self, batch_size):
@@ -310,8 +318,8 @@ if __name__ == "__main__":
     output_size = 3
     done  = False
     agent = DQNAgent(input_size, output_size)
-    #agent.load("models/490_-690.model")
-    #agent.epsilon = 0.0
+    agent.load("models/990_113-t1.model")
+    agent.epsilon = 0.2
 
     for e in range(EPISODES):
         game_state.reset_env()
