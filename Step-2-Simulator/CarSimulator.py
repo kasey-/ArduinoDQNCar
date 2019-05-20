@@ -19,6 +19,8 @@ class GameState:
         self.height = 980
         self.space = pymunk.Space()
         self.space.gravity = pymunk.Vec2d(0.0, 0.0)
+        handler = self.space.add_default_collision_handler()
+        handler.begin = self.debug_coll
 
         # Create walls.
         self.create_boundaries()
@@ -28,7 +30,7 @@ class GameState:
         self.obstacles.append(self.create_obstacle(100, 350, 20))
         self.obstacles.append(self.create_obstacle(700, 200, 30))
         self.obstacles.append(self.create_obstacle(600, 660, 50))
-        self.obstacles.append(self.create_obstacle(900, 900, 50))
+        self.obstacles.append(self.create_obstacle(1000, 900, 50))
 
         # create four chairs in line
         self.create_fourLegs_obstacles(300, 800, 120, 120)
@@ -55,6 +57,10 @@ class GameState:
         self.obstacles.append(self.create_obstacle(x, y+height, 10))
         self.obstacles.append(self.create_obstacle(x+width, y, 10))
         self.obstacles.append(self.create_obstacle(x+width, y+height, 10))
+
+    def debug_coll(self, arbiter, space, data):
+            self.crashed = True
+            return True
 
     def create_car(self, x, y, r):
         inertia = pymunk.moment_for_circle(1.0, 0.0, 25.0, (0.0, 0.0))
@@ -123,21 +129,30 @@ class GameState:
         x, y = self.car_body.position
         angle = self.car_body.angle
         readings = []
+        readings_tmp = []
 
-        # Make our arms.
-        arm_left_e = self.make_sonar_arm(x, y)
-        arm_left_i = arm_left_e
-        arm_middle = arm_left_e
-        arm_right_i = arm_left_e
-        arm_right_e = arm_left_e
+        # Make our arm
+        arm = self.make_sonar_arm(x, y)
 
         # Rotate them and get readings.
         pi = 3.14159265359
-        readings.append(self.get_arm_distance(arm_left_e,  x, y, angle,  pi/3.0))
-        readings.append(self.get_arm_distance(arm_left_i,  x, y, angle,  pi/6.0))
-        readings.append(self.get_arm_distance(arm_middle,  x, y, angle,  0.0))
-        readings.append(self.get_arm_distance(arm_right_i, x, y, angle, -pi/6.0))
-        readings.append(self.get_arm_distance(arm_right_e, x, y, angle, -pi/3.0))
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/2.5))    # 0
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/3.0))    # 1
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/4.0))    # 2
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/6.0))    # 3
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  pi/13.0))   # 4
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  0.0))       # 5
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/13.0))  # 6
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/6.0))   # 7
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/4.0))   # 8
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/3.0))   # 9
+        readings_tmp.append(self.get_arm_distance(arm,  x, y, angle,  -pi/2.5))   # 10
+
+        readings.append(np.max(readings_tmp[0:3]))
+        readings.append(np.max(readings_tmp[2:5]))
+        readings.append(np.max(readings_tmp[4:7]))
+        readings.append(np.max(readings_tmp[6:9]))
+        readings.append(np.max(readings_tmp[8:]))
 
         pygame.display.update()
 
@@ -169,6 +184,7 @@ class GameState:
         return arm_points
 
     def car_is_crashed(self, readings):
+        return False
         for r in readings:
             if r <= 1:
                 return True

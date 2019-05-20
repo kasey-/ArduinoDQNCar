@@ -11,6 +11,7 @@ train
 *.exe
 *.7z
 *.model
+*.o
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
