@@ -34,8 +34,12 @@ class CarSimEnv(gym.Env):
         self.screen_height = 980
         self.clock = pygame.time.Clock()
         self.seed()
+        self.action_space = spaces.Discrete(3)
+        self.observation_space = spaces.Discrete(5)
 
         # Physics stuff.
+        self.width = self.screen_width
+        self.height = self.screen_height
         self.space = pymunk.Space()
         self.space.gravity = pymunk.Vec2d(0.0, 0.0)
         handler = self.space.add_default_collision_handler()
@@ -189,6 +193,10 @@ class CarSimEnv(gym.Env):
             return 0
         else:
             return 1
+
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
 
     def reset(self):
         # random pop

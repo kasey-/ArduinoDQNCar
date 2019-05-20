@@ -1,5 +1,6 @@
 import numpy as np
 import gym
+import gym_carsim
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten
