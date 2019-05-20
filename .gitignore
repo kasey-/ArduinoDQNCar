@@ -12,6 +12,7 @@ train
 *.7z
 *.model
 *.o
+*.h5f
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

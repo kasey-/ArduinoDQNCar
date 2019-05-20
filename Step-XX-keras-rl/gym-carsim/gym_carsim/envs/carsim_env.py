@@ -27,7 +27,7 @@ class CarSimEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self):
-        # Pygame and display setup
+        # Pygame, display and Gym setup
         self.screen = None
         self.draw_options = None
         self.screen_width = 1280
