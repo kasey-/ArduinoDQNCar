@@ -1,4 +1,6 @@
 numpy
 gym
 keras-rl
-tensorflow
+theano
+pygame
+pymunk
