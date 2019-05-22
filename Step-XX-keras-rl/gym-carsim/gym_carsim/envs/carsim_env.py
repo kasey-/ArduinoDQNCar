@@ -24,6 +24,42 @@ PENALTY_CRASH = 500.0
 BONUS_MOVE    = 0.5
 
 class CarSimEnv(gym.Env):
+    """
+    Description:
+        ... to do ...
+
+    Source:
+        ... to do ...
+
+    Observation: 
+        Type: Box(5)
+        Num	Observation                 Min            Max
+        0	Sensor Left -60             0.0            1.0
+        0	Sensor Left -30             0.0            1.0
+        0	Sensor Face                 0.0            1.0
+        0	Sensor Right +30            0.0            1.0
+        0	Sensor Right +60            0.0            1.0
+        
+    Actions:
+        Type: Discrete(3)
+        Num	Action
+        0	Turn left
+        1	Turn right
+        2	Go forward
+        
+    Reward:
+        The reward is composed of:
+         * a bonus if gowing forward or a malus for turning right / left, the purpose is to avoid the bot turning in loop on the spot
+         * a bonus if far from obstacle and a malus if close, threshold 30% or closer 
+         * a malus in case of crash
+
+    Starting State:
+        The car is randomly positionned and oriented in 3 200 x 200 pop area on the map. One is very close to an obstacle
+
+    Episode Termination:
+        The episode stop in case of the car touching any obstacles or wall
+    """
+
     metadata = {'render.modes': ['human']}
 
     def __init__(self):
@@ -32,10 +68,11 @@ class CarSimEnv(gym.Env):
         self.draw_options = None
         self.screen_width = 1280
         self.screen_height = 980
+        self.display_render = False
         self.clock = pygame.time.Clock()
         self.seed()
         self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Discrete(5)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(5,), dtype=np.float32)
 
         # Physics stuff.
         self.width = self.screen_width
@@ -73,6 +110,8 @@ class CarSimEnv(gym.Env):
         # ML stuff.
         self.score = 0
         self.crashed = False
+
+        self._setup_screen()
 
     def _handle_collision(self, arbiter, space, data):
             self.crashed = True
@@ -146,8 +185,8 @@ class CarSimEnv(gym.Env):
         readings.append(np.min(readings_tmp[6:9])/39.0)
         readings.append(np.min(readings_tmp[8:])/39.0)
 
-        #if self.render:
-        #    pygame.display.update()
+        if self.display_render:
+            pygame.display.update()
 
         return readings
 
@@ -162,10 +201,10 @@ class CarSimEnv(gym.Env):
                     or rotated_p[0] >= self.width or rotated_p[1] >= self.height:
                 return i  # Sensor is off the screen.
             else:
-                obs = screen.get_at(rotated_p)
+                obs = self.screen.get_at(rotated_p)
                 if self._get_track_or_not(obs) != 0:
                     return i
-            pygame.draw.circle(screen, (255, 255, 255), (rotated_p), 2)
+            pygame.draw.circle(self.screen, (255, 255, 255), (rotated_p), 2)
         return i
 
     def _make_sonar_arm(self, x, y):
@@ -193,6 +232,17 @@ class CarSimEnv(gym.Env):
             return 0
         else:
             return 1
+    
+    def _setup_screen(self):
+        print('Setting up screen')
+        pygame.init()
+        self.screen = pygame.display.set_mode(
+            (self.screen_width, self.screen_height)
+        )
+        pygame.display.set_caption("Gym CarSim")
+        # Debug draw setup (called in render())
+        self.draw_options = pymunk.pygame_util.DrawOptions(self.screen)
+        self.draw_options.flags = 3
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -213,8 +263,10 @@ class CarSimEnv(gym.Env):
         self.car_body.angle = new_r
         driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
         self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
+        return self._get_sonar_readings()
 
     def step(self, action):
+        self.score = 0.0
         if action == 0:  # Turn left.
             self.car_body.angle -= 0.2
             self.score -= PENALTY_TURN
@@ -228,32 +280,25 @@ class CarSimEnv(gym.Env):
         self.car_body.velocity = 50 * driving_direction
 
         # Update the screen and stuff.
-        screen.fill(THECOLORS["black"])
-        self.space.debug_draw(draw_options)
+        self.screen.fill(THECOLORS["black"])
+        self.space.debug_draw(self.draw_options)
         self.space.step(1./10.0)
-        #if self.render:
-        #    pygame.display.flip()
-        clock.tick()
+        if self.display_render:
+            pygame.display.flip()
+        self.clock.tick()
 
         # Get the current location and the readings there.
         readings = self._get_sonar_readings()
-        for r in readings:
-            self.score += (r - PENALTY_DIST) / 5.0
-            #print("Reading penalty {}".format(r/39.0 - 1))
+        #for r in readings:
+        #    self.score += (0.9 - r) / 5.0
+        #    #print("Reading penalty {}".format(r/39.0 - 1))
 
-        return readings, self.score, self.crashed
+        return readings, self.score, self.crashed, {}
 
     def render(self, mode='human'):
         if self.screen == None:
-            print('Setting up screen')
-            pygame.init()
-            self.screen = pygame.display.set_mode(
-                (self.screen_width, self.screen_height)
-            )
-            pygame.display.set_caption("Gym CarSim")
-            # Debug draw setup (called in render())
-            self.draw_options = pymunk.pygame_util.DrawOptions(self.screen)
-            self.draw_options.flags = 3
+            self._setup_screen()
+        self.display_render = True
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

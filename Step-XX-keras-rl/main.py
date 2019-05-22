@@ -16,8 +16,8 @@ ENV_NAME = 'carsim-v0'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
-np.random.seed(123)
-env.seed(123)
+np.random.seed(98283476)
+env.seed(87518645)
 nb_actions = env.action_space.n
 
 # Next, we build a very simple model regardless of the dueling architecture
@@ -49,6 +49,7 @@ dqn.fit(env, nb_steps=50000, visualize=False, verbose=2)
 
 # After training is done, we save the final weights.
 dqn.save_weights('duel_dqn_{}_weights.h5f'.format(ENV_NAME), overwrite=True)
+#dqn.load_weights('duel_dqn_push-obstacles-carsim-v0_weights.h5f')
 
 # Finally, evaluate our algorithm for 5 episodes.
-dqn.test(env, nb_episodes=5, visualize=False)
+dqn.test(env, nb_episodes=5, visualize=True)
