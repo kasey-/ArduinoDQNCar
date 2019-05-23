@@ -50,7 +50,6 @@ class CarSimEnv(gym.Env):
     Reward:
         The reward is composed of:
          * a bonus if gowing forward or a malus for turning right / left, the purpose is to avoid the bot turning in loop on the spot
-         * a bonus if far from obstacle and a malus if close, threshold 30% or closer 
          * a malus in case of crash
 
     Starting State:
