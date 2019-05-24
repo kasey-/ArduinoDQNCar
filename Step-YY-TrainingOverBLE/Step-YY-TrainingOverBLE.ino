@@ -16,7 +16,7 @@ void perform_action(int cursor) {
   distance = target - cursor;
   score = 0;
   // Check if we are outside of range
-  if((cursor < minimum) || (cursor > maximum)) {
+  if((cursor < MINIMUM) || (cursor > MAXIMUM)) {
     done = true;
     score = - 100;
   // Check if we are on the target
@@ -25,13 +25,15 @@ void perform_action(int cursor) {
     score = 1000;
   // If not dead nor on the spot we compute the score
   } else {
-    score = 800 - abs(distance)
+    score = 800 - abs(distance);
   }
 }
 
 void setup() {
-  Serial.begin(115200);
+  randomSeed(analogRead(0)+millis());
   new_game();
+  Serial.begin(115200);
+  Serial.println("Ready to play");
 }
 
 void loop() {
@@ -43,5 +45,6 @@ void loop() {
     Serial.print(score);
     Serial.print(",");
     Serial.println(done);
+    if(done) new_game();
   }
 }

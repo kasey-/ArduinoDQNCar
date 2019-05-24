@@ -1,6 +1,6 @@
 import numpy as np
 import gym
-import gym_carsim
+import gym_arduino
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten
@@ -10,7 +10,7 @@ from rl.agents.dqn import DQNAgent
 from rl.policy import BoltzmannQPolicy
 from rl.memory import SequentialMemory
 
-ENV_NAME = 'carsim-v0'
+ENV_NAME = 'arduino-v0'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
