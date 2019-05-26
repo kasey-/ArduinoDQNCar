@@ -16,7 +16,8 @@ ENV_NAME = 'arduino-v0'
 env = gym.make(ENV_NAME)
 np.random.seed(98283476)
 env.seed(87518645)
-nb_actions = env.action_space.n
+assert len(env.action_space.shape) == 1
+nb_actions = env.action_space.shape[0]
 
 # Next, we build a very simple model regardless of the dueling architecture
 # if you enable dueling network in DQN , DQN will build a dueling network base on your model automatically
@@ -50,4 +51,4 @@ dqn.save_weights('duel_dqn_{}_weights.h5f'.format(ENV_NAME), overwrite=True)
 #dqn.load_weights('duel_dqn_carsim-v0_weights.h5f')
 
 # Finally, evaluate our algorithm for 5 episodes.
-print(dqn.test(env, nb_episodes=5, visualize=True))
+dqn.test(env, nb_episodes=5, visualize=True)
