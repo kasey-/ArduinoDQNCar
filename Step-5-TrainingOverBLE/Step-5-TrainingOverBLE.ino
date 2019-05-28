@@ -1,18 +1,22 @@
 #define MINIMUM 100
 #define MAXIMUM 900
 #define SAFE    100
+#define CUSRSOR 500
 
+int  cursor;
 int  target;
 int  distance;
 int  score;
 bool done;
 
 void new_game() {
+  cursor = random(CUSRSOR+SAFE, CUSRSOR-SAFE);
   target = random(MINIMUM+SAFE, MAXIMUM-SAFE);
 }
 
-void perform_action(int cursor) {
+void perform_action(int step) {
   done = false;
+  cursor += step;
   distance = target - cursor;
   score = 0;
   // Check if we are outside of range
@@ -30,16 +34,16 @@ void perform_action(int cursor) {
 }
 
 void setup() {
-  randomSeed(analogRead(0)+millis());
+  randomSeed(analogRead(0)+analogRead(1)+millis());
   new_game();
   Serial.begin(115200);
   Serial.println("Ready to play");
 }
 
 void loop() {
-  if (Serial.available() > 0) {      
-    int cursor = Serial.parseInt();
-    perform_action(cursor);
+  if (Serial.available() > 0) {
+    int steps = Serial.parseInt();
+    perform_action(steps);
     Serial.print(distance);
     Serial.print(",");
     Serial.print(score);
