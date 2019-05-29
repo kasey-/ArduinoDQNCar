@@ -1,5 +1,6 @@
 numpy
+gym
+keras-rl
+theano
 pygame
 pymunk
-keras
-theano
