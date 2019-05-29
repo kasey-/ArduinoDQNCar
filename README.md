@@ -18,19 +18,32 @@ And use:
 
  * https://github.com/viblo/pymunk
  * https://github.com/keras-rl/keras-rl
+ * https://github.com/openai/gym
  * https://github.com/codeplea/genann
 
 ## Step 0: Ultrasonic Scanner
 
+3D printed servo-mount for ultrasonic sensor and code to drive it.
+
 ## Step 1: Motor Speed PID Control
+
+I tried to control motor speed using a PID control. However, the mechanic is too wobbly to produce any quality output.
 
 ## Step 2: Robot Simulator
 
+Create a simulator where a simulated robot evolves
+
 ## Step 3: Deep Reinforcement Learning
 
-## Step 4: Robot Bluetooth Update
+Use the simulator and Keras-rl to train a neural network to drive the robot according to its environment.
+
+## Step 4: Training Over BLE
+
+Execute the training locally in the computer but run the environement on an arduino linked in BLE.
 
 ## Step 5: InVivo Reinforcement Learning
+
+... to do ...
 
 ## Todo
 
@@ -45,12 +58,11 @@ And use:
 
  - [x] Fine tune hyper parameters
  - [x] Regularly save models
- - [ ] Refactor code to generate training dataset for Gennan
  - [ ] Implement training refinement in vivo
  - [ ] Write how to use it
  
 ### Improvements
 
- - [ ] Improve simulator
+ - [x] Improve simulator
  - [x] Improve DQN algo (moved to Keras-rl with crazy built-in rl algo)
  - [ ] Implement relu for Genann
