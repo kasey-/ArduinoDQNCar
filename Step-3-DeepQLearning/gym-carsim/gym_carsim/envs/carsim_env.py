@@ -34,11 +34,9 @@ class CarSimEnv(gym.Env):
     Observation: 
         Type: Box(5)
         Num	Observation                 Min            Max
-        0	Sensor Left -60             0.0            1.0
-        0	Sensor Left -30             0.0            1.0
+        0	Sensor Left -45             0.0            1.0
         0	Sensor Face                 0.0            1.0
-        0	Sensor Right +30            0.0            1.0
-        0	Sensor Right +60            0.0            1.0
+        0	Sensor Right +45            0.0            1.0
         
     Actions:
         Type: Discrete(3)
@@ -71,7 +69,7 @@ class CarSimEnv(gym.Env):
         self.clock = pygame.time.Clock()
         self.seed()
         self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(5,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(3,), dtype=np.float32)
 
         # Physics stuff.
         self.width = self.screen_width
@@ -166,23 +164,21 @@ class CarSimEnv(gym.Env):
 
         # Rotate them and get readings.
         pi = 3.14159265359
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/2.5))    # 0
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/3.0))    # 1
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/4.0))    # 2
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/6.0))    # 3
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/13.0))   # 4
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  0.0))       # 5
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/13.0))  # 6
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/6.0))   # 7
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/4.0))   # 8
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/3.0))   # 9
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/2.5))   # 10
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/2.5))    # 0  1
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/3.0))    # 1  1
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/4.0))    # 2  1
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/6.0))    # 3  1+2
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/13.0))   # 4  2
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  0.0))       # 5  2
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/13.0))  # 6  2
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/6.0))   # 7  2+3
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/4.0))   # 8  3
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/3.0))   # 9  3
+        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/2.5))   # 10 3
 
-        readings.append(np.min(readings_tmp[0:3])/39.0)
-        readings.append(np.min(readings_tmp[2:5])/39.0)
-        readings.append(np.min(readings_tmp[4:7])/39.0)
-        readings.append(np.min(readings_tmp[6:9])/39.0)
-        readings.append(np.min(readings_tmp[8:])/39.0)
+        readings.append(np.min(readings_tmp[0:4])/39.0)
+        readings.append(np.min(readings_tmp[3:8])/39.0)
+        readings.append(np.min(readings_tmp[7: ])/39.0)
 
         if self.display_render:
             pygame.display.update()

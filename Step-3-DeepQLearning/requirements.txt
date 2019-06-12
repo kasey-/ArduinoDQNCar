@@ -1,6 +1,6 @@
 numpy
 gym
 keras-rl
-theano
+tensorflow
 pygame
 pymunk
