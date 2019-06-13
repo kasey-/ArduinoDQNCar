@@ -157,6 +157,7 @@ void step(int action) {
 
 void setup() {
   Serial.begin(115200);                         // Start serial 115200
+  Serial.setTimeout(10);                        // Serial timeout = 10 ms otherwise Parseint wait 1s '-_-
 
   pinMode(DIST_SENS_RIGHT_PIN, INPUT);
   pinMode(DIST_SENS_LEFT_PIN, INPUT);
@@ -190,7 +191,7 @@ void loop() {
       break;
       case 0:
       case 1:
-      case 2:      
+      case 2:
         step(_cmd);
     }
     Serial.flush();
