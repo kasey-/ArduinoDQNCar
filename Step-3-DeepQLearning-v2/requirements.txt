@@ -1,0 +1,6 @@
+numpy
+gym
+keras-rl
+tensorflow
+pymunk
+pyglet

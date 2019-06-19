@@ -5,7 +5,6 @@ import gym_carsim
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten
 from keras.optimizers import Adam
-from keras.callbacks import TensorBoard
 
 from rl.agents.dqn import DQNAgent
 from rl.policy import BoltzmannQPolicy
@@ -24,14 +23,12 @@ nb_actions = env.action_space.n
 # Also, you can build a dueling network by yourself and turn off the dueling network in DQN.
 model = Sequential()
 model.add(Flatten(input_shape=(1,) + env.observation_space.shape))
-model.add(Dense(16))
+model.add(Dense(8))
 model.add(Activation('relu'))
-model.add(Dense(16))
+model.add(Dense(8))
 model.add(Activation('relu'))
 model.add(Dense(nb_actions, activation='sigmoid'))
 print(model.summary())
-
-tb_callback = TensorBoard(log_dir='logs')
 
 # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
 # even the metrics!
@@ -46,15 +43,5 @@ dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 # Okay, now it's time to learn something! We visualize the training here for show, but this
 # slows down training quite a lot. You can always safely abort the training prematurely using
 # Ctrl + C.
-dqn.fit(env, nb_steps=50000, visualize=False, verbose=1, callbacks=[tb_callback])
-
-tb_log_dir = 'logs'
-tb_callback = TensorBoard(log_dir=tb_log_dir, histogram_freq=1)
-dqn.fit(env, nb_steps=50000, visualize=True, verbose=2, callbacks=[tb_callback])
-
-# After training is done, we save the final weights.
-dqn.save_weights('duel_dqn_{}_weights.h5f'.format(ENV_NAME), overwrite=True)
-#dqn.load_weights('duel_dqn_carsim-v0_weights.h5f')
-
-# Finally, evaluate our algorithm for 5 episodes.
-print(dqn.test(env, nb_episodes=5, visualize=True))
+dqn.load_weights('duel_dqn_{}_weights.h5f'.format(ENV_NAME))
+print(dqn.test(env, nb_episodes=5, nb_max_episode_steps=10000, visualize=True))
