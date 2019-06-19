@@ -1,309 +1,251 @@
-# Sources:
-# * https://github.com/openai/gym/blob/master/docs/creating-environments.md
-# * https://gist.github.com/iandanforth/bbce05af83fb482f4ffc3fb8570fe50d
+import pyglet
+import pymunk
+from pymunk.pyglet_util import DrawOptions
+from pymunk.vec2d import Vec2d
+
+import numpy as np
+import random
 
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
 
-import random
-import math
-import numpy as np
-from datetime import datetime
+class UltrasonicSensor:
+    def __init__(self, space, car, offset=0, angle=0, color=(0,255,0,255)):
+        self.space = space
+        self.car = car
+        self.offset = offset
+        self.angle = angle
+        self.color = color
+        self.fov = 60
+        self.spread = 2
+        self.range = 100
 
-import pygame
-from pygame.color import THECOLORS
+    def sense(self):
+        fov = int(self.fov/2)
+        car_x, car_y = self.car.body.position
+        car_top = Vec2d(0.0, self.car.height/2.0).rotated(self.car.body.angle)
+        offset  = Vec2d(self.offset, 1.0).rotated(self.car.body.angle)
+        car_x += car_top.x + offset.x
+        car_y += car_top.y + offset.y
+        distances = []
+        for angle in range(-fov+self.angle, fov+self.angle, self.spread):
+            ray, distance = self._create_ray(car_x, car_y, angle)
+            distances.append(distance)
+            self.space.add(ray)
+        return np.min(distances)
+    
+    def _create_ray(self, a_x, a_y, angle):
+        kinematic = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        b_x, b_y = Vec2d(0.0, self.range).rotated(self.car.body.angle).rotated_degrees(angle)
+        ray = pymunk.Segment(kinematic, (a_x, a_y), (a_x+b_x, a_y+b_y), 1.0)
+        ray.position = (a_x, a_y)
+        ray.color = self.color
+        ray.is_a_ray = True
+        hits = self.space.segment_query(ray.a, ray.b, 1.0, pymunk.ShapeFilter())
+        distance = [self.range]
+        for hit in hits:
+            if hasattr(hit.shape, 'is_sensed'):
+                x = abs(hit.point.x - ray.a.x)
+                y = abs(hit.point.y - ray.a.y)
+                distance.append(Vec2d(x, y).get_length())
+        return ray, np.min(distance) / self.range
 
-import pymunk
-from pymunk.vec2d import Vec2d
-import pymunk.pygame_util
+    def _clear_rays(self):
+        for shape in self.space.shapes:
+            if hasattr(shape, 'is_a_ray'):
+                self.space.remove(shape)
 
-PENALTY_TURN  = 0.8
-PENALTY_DIST  = 0.7
-PENALTY_CRASH = 500.0
-BONUS_MOVE    = 0.5
+class Car:
+    def __init__(self, space, pop=(500, 200), angle=0):
+        self.height = 50
+        self.width = 38
+        self.velocity = 50.0
+        self.steering_angle = 0.2
+        self.is_crashed = False
+        _size = (self.width,self.height)
+        _mass = 1.0
+        _inertia = pymunk.moment_for_box(_mass, _size)
+        
+        self.space = space
+        self.body = pymunk.Body(_mass, _inertia)
+        self.reset_body(pop, angle)
+        self.shape = pymunk.Poly.create_box(self.body, size=_size)
+        self.shape.elasticity = 1.0
+        self.space.add(self.body, self.shape)
+
+        self.collision_handler = self.space.add_default_collision_handler()       
+        self.collision_handler.begin = self._handle_collision
+
+        self.sensors = []
+        self.sensors.append(UltrasonicSensor(self.space, self, -10,  45, (0, 255, 0, 200)))
+        self.sensors.append(UltrasonicSensor(self.space, self,   0,   0, (255, 0, 0, 200)))
+        self.sensors.append(UltrasonicSensor(self.space, self,  10, -45, (0, 0, 255, 200)))
+   
+    def reset_body(self, pop, angle):
+        self.is_crashed = False
+        self.body.position = pop
+        self.body.angle = angle
+        self.body.velocity = Vec2d(0.0, self.velocity)
+        self.body.angular_velocity = 0.0
+    
+    def read_sensors(self):
+        distances = []
+        for sensor in self.sensors:
+            distances.append(sensor.sense())
+        return distances
+
+    def cmd(self,cmd):
+        if cmd == 0:    # Turn left.
+            self.body.angle += self.steering_angle
+        elif cmd == 1:  # Turn right.
+            self.body.angle -= self.steering_angle
+        
+        direction = Vec2d(0, self.velocity).rotated(self.body.angle)
+        self.body.velocity = direction
+
+    def _handle_collision(self, arbiter, space, data):
+        self.is_crashed = True
+        return True
+
+class Obstacle:
+    def __init__(self, space, pos, radius):
+        body = space.static_body
+        body.position = pos
+        obs = pymunk.Circle(space.static_body, radius)
+        obs.is_sensed = True
+        space.add(obs)
+
+class FourLegsObstacle:
+    def __init__(self, space, pos, width, height, radius):
+        _pos = np.array(pos)
+        Obstacle(space, _pos + (0,     0),      radius)
+        Obstacle(space, _pos + (0,     height), radius)
+        Obstacle(space, _pos + (width, 0),      radius)
+        Obstacle(space, _pos + (width, height), radius)
 
 class CarSimEnv(gym.Env):
-    """
-    Description:
-        ... to do ...
-
-    Source:
-        ... to do ...
-
-    Observation: 
-        Type: Box(5)
-        Num	Observation                 Min            Max
-        0	Sensor Left -45             0.0            1.0
-        0	Sensor Face                 0.0            1.0
-        0	Sensor Right +45            0.0            1.0
-        
-    Actions:
-        Type: Discrete(3)
-        Num	Action
-        0	Turn left
-        1	Turn right
-        2	Go forward
-        
-    Reward:
-        The reward is composed of:
-         * a bonus if gowing forward or a malus for turning right / left, the purpose is to avoid the bot turning in loop on the spot
-         * a malus in case of crash
-
-    Starting State:
-        The car is randomly positionned and oriented in 3 200 x 200 pop area on the map. One is very close to an obstacle
-
-    Episode Termination:
-        The episode stop in case of the car touching any obstacles or wall
-    """
-
-    metadata = {'render.modes': ['human']}
-
     def __init__(self):
-        # Pygame, display and Gym setup
-        self.screen = None
-        self.draw_options = None
-        self.screen_width = 1280
-        self.screen_height = 980
-        self.display_render = False
-        self.clock = pygame.time.Clock()
+        self.width  = 1280
+        self.height = 720
+        self.window = pyglet.window.Window(self.width, self.height, "Car Simulator", resizable=False)
+        self.draw_options = DrawOptions()
+
         self.seed()
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(3,), dtype=np.float32)
 
-        # Physics stuff.
-        self.width = self.screen_width
-        self.height = self.screen_height
         self.space = pymunk.Space()
-        self.space.gravity = pymunk.Vec2d(0.0, 0.0)
-        handler = self.space.add_default_collision_handler()
-        handler.begin = self._handle_collision
+        self.space.gravity = Vec2d(0.0, 0.0)
 
-        # Create walls.
         self._create_boundaries()
+        self.car = Car(self.space)
 
-        # Create some obstacles, semi-randomly.
-        # We'll create three and they'll move around to prevent over-fitting.
-        self.obstacles = []
-        self.obstacles.append(self._create_obstacle(100, 350, 20))
-        self.obstacles.append(self._create_obstacle(700, 200, 30))
-        self.obstacles.append(self._create_obstacle(600, 660, 50))
-        self.obstacles.append(self._create_obstacle(950, 900, 50))
+        Obstacle(self.space, ( 300, 300), 50)
+        Obstacle(self.space, ( 250, 630), 80)
+        Obstacle(self.space, (1200, 600), 90)
 
-        self._create_fourLegs_obstacles(300, 800, 120, 120)
-        self._create_fourLegs_obstacles(450, 800, 120, 120)
-        self._create_fourLegs_obstacles(600, 800, 120, 120)
-        self._create_fourLegs_obstacles(750, 800, 120, 120)
+        FourLegsObstacle(self.space, ( 700, 400), 200, 200, 15)
+        
+        FourLegsObstacle(self.space, ( 800,  50), 100, 100, 10)
+        FourLegsObstacle(self.space, ( 920,  50), 100, 100, 10)
+        FourLegsObstacle(self.space, (1040,  50), 100, 100, 10)
 
-        self._create_fourLegs_obstacles(500, 100, 300, 300)
-        self._create_fourLegs_obstacles(820, 100, 300, 300)
+        def on_key_press(symbol, modifiers):
+            #if symbol == pyglet.window.key.LEFT:
+            #    self.car.cmd(0)
+            #elif symbol == pyglet.window.key.RIGHT:
+            #    self.car.cmd(1)
+            #elif symbol == pyglet.window.key.UP:
+            #    self.car.cmd(2)
+            if symbol == pyglet.window.key.ESCAPE:
+                pyglet.app.exit()
+                quit()
+            #update(0.2)
 
-        # Create Car
-        self.car_init_x = 1000
-        self.car_init_y = 600
-        self.car_init_r = 3.1456/2
-        self._create_car()
+        #def on_draw():
+        #    self.window.clear()
+        #    self.space.debug_draw(self.draw_options)
 
-        # ML stuff.
-        self.score = 0
-        self.crashed = False
+        #def update(dt):
+        #    self.car.sensors[0]._clear_rays()
+        #    self.space.step(dt)
+        #    print(self.car.read_sensors())
+        #    if self.car.is_crashed:
+        #        self.reset_sim()
 
-        self._setup_screen()
-
-    def _handle_collision(self, arbiter, space, data):
-            self.crashed = True
-            self.score -= PENALTY_CRASH
-            return True
-
-    def _create_fourLegs_obstacles(self, x, y, width, height):
-        self.obstacles.append(self._create_obstacle(x, y, 10))
-        self.obstacles.append(self._create_obstacle(x, y+height, 10))
-        self.obstacles.append(self._create_obstacle(x+width, y, 10))
-        self.obstacles.append(self._create_obstacle(x+width, y+height, 10))
-
-    def _create_car(self):
-        inertia = pymunk.moment_for_circle(1.0, 0.0, 25.0, (0.0, 0.0))
-        self.car_body = pymunk.Body(1, inertia)
-        self.car_body.position = self.car_init_x, self.car_init_y
-        self.car_shape = pymunk.Circle(self.car_body, 25.0)
-        self.car_shape.color = THECOLORS["green"]
-        self.car_shape.elasticity = 1.0
-        self.car_body.angle = self.car_init_r
-        driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
-        self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
-        self.space.add(self.car_body, self.car_shape)
-
-    def _create_boundaries(self):
-        static_body = self.space.static_body
-        static_lines = [pymunk.Segment(static_body, (1.0, 1.0), (self.width-1, 1.0),  1.0),
-                        pymunk.Segment(static_body, (1.0, 1.0), (1.0, self.height-1), 1.0),
-                        pymunk.Segment(static_body, (1.0, self.height-1), (self.width-1, self.height-1), 1.0),
-                        pymunk.Segment(static_body, (self.width-1, 1.0),  (self.width-1, self.height-1), 1.0)]
-        for line in static_lines:
-            line.elasticity = 1.0
-            line.friction = 0.0
-        self.space.add(static_lines)
-
-    def _create_obstacle(self, x, y, r):
-        c_body = pymunk.Body(10000000, pymunk.inf)
-        c_shape = pymunk.Circle(c_body, r)
-        c_shape.elasticity = 1.0
-        c_body.position = x, y
-        c_shape.color = THECOLORS["blue"]
-        self.space.add(c_body, c_shape)
-        return c_body
-
-    def _get_sonar_readings(self):
-        x, y = self.car_body.position
-        angle = self.car_body.angle
-        readings = []
-        readings_tmp = []
-
-        # Make our arm
-        arm = self._make_sonar_arm(x, y)
-
-        # Rotate them and get readings.
-        pi = 3.14159265359
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/2.5))    # 0  1
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/3.0))    # 1  1
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/4.0))    # 2  1
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/6.0))    # 3  1+2
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  pi/13.0))   # 4  2
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  0.0))       # 5  2
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/13.0))  # 6  2
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/6.0))   # 7  2+3
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/4.0))   # 8  3
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/3.0))   # 9  3
-        readings_tmp.append(self._get_arm_distance(arm,  x, y, angle,  -pi/2.5))   # 10 3
-
-        readings.append(np.min(readings_tmp[0:4])/39.0)
-        readings.append(np.min(readings_tmp[3:8])/39.0)
-        readings.append(np.min(readings_tmp[7: ])/39.0)
-
-        if self.display_render:
-            pygame.display.update()
-
-        return readings
-
-    def _get_arm_distance(self, arm, x, y, angle, offset):
-        i = 0
-        for point in arm:
-            i += 1
-            rotated_p = self._get_rotated_point(
-                x, y, point[0], point[1], angle + offset
-            )
-            if rotated_p[0] <= 0 or rotated_p[1] <= 0 \
-                    or rotated_p[0] >= self.width or rotated_p[1] >= self.height:
-                return i  # Sensor is off the screen.
-            else:
-                obs = self.screen.get_at(rotated_p)
-                if self._get_track_or_not(obs) != 0:
-                    return i
-            pygame.draw.circle(self.screen, (255, 255, 255), (rotated_p), 2)
-        return i
-
-    def _make_sonar_arm(self, x, y):
-        spread = 10  # Default spread.
-        distance = 20  # Gap before first sensor.
-        arm_points = []
-        # Make an arm. We build it flat because we'll rotate it about the center later.
-        for i in range(1, 40):
-            arm_points.append((distance + x + (spread * i), y))
-
-        return arm_points
-
-    def _get_rotated_point(self, x_1, y_1, x_2, y_2, radians):
-        # Rotate x_2, y_2 around x_1, y_1 by angle.
-        x_change = (x_2 - x_1) * math.cos(radians) + \
-            (y_2 - y_1) * math.sin(radians)
-        y_change = (y_1 - y_2) * math.cos(radians) - \
-            (x_1 - x_2) * math.sin(radians)
-        new_x = x_change + x_1
-        new_y = self.height - (y_change + y_1)
-        return int(new_x), int(new_y)
-
-    def _get_track_or_not(self, reading):
-        if reading == THECOLORS['black']:
-            return 0
-        else:
-            return 1
-    
-    def _setup_screen(self):
-        print('Setting up screen')
-        pygame.init()
-        self.screen = pygame.display.set_mode(
-            (self.screen_width, self.screen_height)
-        )
-        pygame.display.set_caption("Gym CarSim")
-        # Debug draw setup (called in render())
-        self.draw_options = pymunk.pygame_util.DrawOptions(self.screen)
-        self.draw_options.flags = 3
+        self.window.push_handlers(on_key_press)#,on_draw)
+        #pyglet.clock.schedule_interval(update, 1.0/30.0)
+        #pyglet.app.run()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
+    def step(self, action):
+        self._pyglet_event_loop()
+        self.car.sensors[0]._clear_rays()
+        self.car.cmd(action)
+        self.space.step(0.1)
+        observation = self.car.read_sensors()
+        done = self.car.is_crashed
+        score = 0.0
+        if done:
+            score = -500
+        else:
+            if action == 0 or action == 1:
+                score -= 1
+            else:
+                score += 1
+        #print(observation, score, done)
+        return observation, score, done, {}
+
+    def render(self, mode='human'):
+        self.window.clear()
+        self.space.debug_draw(self.draw_options)
+
     def reset(self):
-        # random pop
-        pop_sites = [[300,300],[200,500],[1000,600]]
+        self._pyglet_event_loop()
+        self.car.sensors[0]._clear_rays()
+        rand_pop, rand_angle = self._random_pop()
+        self.car.reset_body(rand_pop, rand_angle)
+        self.space.step(0.1)
+        return self.car.read_sensors()
+    
+    def _random_pop(self):
+        pop_sites = [[200,150],[200,450],[500,500],[550,150],[1100,350]]
         pop_site = random.choice(pop_sites)
 
         new_x = pop_site[0] + random.randrange(-100, +100, 1)
         new_y = pop_site[1] + random.randrange(-100, +100, 1)
         new_r = random.randrange(-31456, 31456) / 10000.0
+        return (new_x, new_y), new_r
 
-        self.score = 0
-        self.crashed = False
-        self.car_body.position = new_x, new_y
-        self.car_body.angle = new_r
-        driving_direction = Vec2d(1.0, 0.0).rotated(self.car_body.angle)
-        self.car_body.apply_impulse_at_local_point(driving_direction, (0.0,0.0))
-        return self._get_sonar_readings()
+    def _pyglet_event_loop(self):
+        pyglet.clock.tick()
+        for window in pyglet.app.windows:
+            window.switch_to()
+            window.dispatch_events()
+            window.dispatch_event('on_draw')
+            window.flip()
 
-    def step(self, action):
-        self.score = 0.0
-        if action == 0:  # Turn left.
-            self.car_body.angle -= 0.2
-            self.score -= PENALTY_TURN
-        elif action == 1:  # Turn right.
-            self.car_body.angle += 0.2
-            self.score -= PENALTY_TURN
-        else:
-            self.score += BONUS_MOVE
+    def _create_boundaries(self):
+        body = self.space.static_body
+        tickness = 1.0
+        boundaries = []
+        boundaries.append(pymunk.Segment(body, (1.0, 1.0), (self.width-1, 1.0),  tickness))
+        boundaries.append(pymunk.Segment(body, (1.0, 1.0), (1.0, self.height-1), tickness))
+        boundaries.append(pymunk.Segment(body, (1.0, self.height-1), (self.width-1, self.height-1), tickness))
+        boundaries.append(pymunk.Segment(body, (self.width-1, 1.0),  (self.width-1, self.height-1), tickness))
+        for boundarie in boundaries:
+            boundarie.elasticity = 1.0
+            boundarie.friction = 0.0
+            boundarie.is_sensed = True
+            self.space.add(boundarie)
 
-        driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
-        self.car_body.velocity = 50 * driving_direction
-
-        # Update the screen and stuff.
-        self.screen.fill(THECOLORS["black"])
-        self.space.debug_draw(self.draw_options)
-        self.space.step(1./10.0)
-        if self.display_render:
-            pygame.display.flip()
-        self.clock.tick()
-
-        # Get the current location and the readings there.
-        readings = self._get_sonar_readings()
-        #for r in readings:
-        #    self.score += (0.9 - r) / 5.0
-        #    #print("Reading penalty {}".format(r/39.0 - 1))
-
-        return readings, self.score, self.crashed, {}
-
-    def render(self, mode='human'):
-        if self.screen == None:
-            self._setup_screen()
-        self.display_render = True
-        
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    pygame.quit()
-                    quit()
-
-    def close(self):
-        pygame.quit()
+if __name__ == "__main__":
+    simulation = CarSimEnv()
+    simulation.reset()
+    while True:
+        print(simulation.step(0))
 

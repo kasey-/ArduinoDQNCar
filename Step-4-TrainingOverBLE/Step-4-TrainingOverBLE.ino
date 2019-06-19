@@ -1,21 +1,24 @@
-#include <timer.h>                  // https://github.com/contrem/arduino-timer
-#include "ServoTimer2.h"            // https://github.com/nabontra/ServoTimer2
-#include <L298N.h>                  // https://github.com/AndreaLombardo/L298N
-#include <EnableInterrupt.h>        // https://github.com/GreyGnome/EnableInterrupt
-#include <Ultrasonic.h>             // https://github.com/ErickSimoes/Ultrasonic
+#include <timer.h>                   // https://github.com/contrem/arduino-timer
+#include "ServoTimer2.h"             // https://github.com/nabontra/ServoTimer2
+#include <L298N.h>                   // https://github.com/AndreaLombardo/L298N
+#include <EnableInterrupt.h>         // https://github.com/GreyGnome/EnableInterrupt
+#include <Ultrasonic.h>              // https://github.com/ErickSimoes/Ultrasonic
 
 #define DIST_SENS_RIGHT_PIN A4
 #define DIST_SENS_LEFT_PIN  A5
 
-#define UTRASONIC_SERVO_PIN   11    // Servo is attached to digital pin 11
-#define UTRASONIC_TRIG_PIN    A0    // Ultrasonic trigger pin is attached to Analog 0, why ...
-#define UTRASONIC_ECHO_PIN    A1    // Ultrasonic echo pin is attached to Analog 1, also why ...
-#define UTRASONIC_TIMING_MOVE 250   // 250 ms is a safe timing to move the servo
-#define UTRASONIC_TIMING_MEAS 10    // we measure distance 10 ms before next servo move
-#define UTRASONIC_TIMEOUT     5700UL// Ultrasonic timeout 7 000 = 1m
+#define UTRASONIC_SERVO_PIN   11     // Servo is attached to digital pin 11
+#define UTRASONIC_TRIG_PIN    A0     // Ultrasonic trigger pin is attached to Analog 0, why ...
+#define UTRASONIC_ECHO_PIN    A1     // Ultrasonic echo pin is attached to Analog 1, also why ...
+#define UTRASONIC_TIMING_MOVE 250    // 250 ms is a safe timing to move the servo
+#define UTRASONIC_TIMING_MEAS 10     // we measure distance 10 ms before next servo move
+#define UTRASONIC_TIMEOUT     5700UL // Ultrasonic timeout 7 000 = 1m
 
-#define SAFETY_TIMING         50    // we measure distance 10 ms before next servo move
-#define BACKWARD_DELAY        2500  // Move backward after collision 2.5 s
+#define HANDLE_CMD_TIMING     10
+
+#define SAFETY_TIMING         50     // we measure distance 10 ms before next servo move
+#define SAFETY_CMD_DELAY      3500   // Stop the car if we did not received a cmd since 3.5s
+#define BACKWARD_DELAY        2000   // Move backward after collision 2.5 s
 
 // Right Motor
 #define ENA 5
@@ -26,7 +29,7 @@
 #define IN4 9
 #define ENB 10
 // Motor settings
-#define MOTOR_SPEED 0
+#define MOTOR_SPEED 80
 
 #define PENALTY_TURN  -0.8
 #define PENALTY_DIST  -0.7
@@ -36,23 +39,37 @@
 L298N motor1(ENA, IN1, IN2);
 L298N motor2(ENB, IN3, IN4);
 
-Timer<5> timer;                            // List of three timer ms based: move, compute reward, safety, ...
+Timer<16> timer;                           // List of three timer ms based: move, compute reward, safety, ...
 ServoTimer2 ultrasonic_servo;              // Create servo using timer2 object to control the ultrasonic servo
 Ultrasonic  ultrasonic_sensor(UTRASONIC_TRIG_PIN, UTRASONIC_ECHO_PIN, UTRASONIC_TIMEOUT);
 
 bool car_is_crashed;
 float _partial_reward;
+bool _lock_cmd;
+unsigned long send_result_time;
+unsigned long last_cmd_time;
 
 float ultrasonic_measures[3] = {1.0,1.0,1.0}; // init list of measures to be safe
 short servo_direction = 1;                 // Initial direction positive to move clockwise
 short servo_position  = 1;                 // Initial position is middle
 
-bool check_if_crashed(void *) {
-  if(!digitalRead(DIST_SENS_RIGHT_PIN) || !digitalRead(DIST_SENS_LEFT_PIN)) {
+void update_cmd_timer() {
+  last_cmd_time = millis();
+}
+
+bool do_security_check(void *) {
+  if(
+      !digitalRead(DIST_SENS_RIGHT_PIN) ||
+      !digitalRead(DIST_SENS_LEFT_PIN)
+    ) {
     car_is_crashed = true;      
-    motor1.stop();                             
-    motor2.stop();                           
+    motor1.stop();
+    motor2.stop();
   } else {
+    if(last_cmd_time + SAFETY_CMD_DELAY < millis()) {
+      motor1.stop();                       // Stop Motor to wait next instruction
+      motor2.stop();
+    }
     car_is_crashed = false;  
   }
   return true;
@@ -67,8 +84,8 @@ bool save_measure(void *) {
 }
 
 void move_servo() {
-  //short servo_angles[3] = {1970, 1540, 1150}; // -45 0 45 degree 
-  short servo_angles[3] = {1540, 1540, 1540}; // -45 0 45 degree 
+  short servo_angles[3] = {1970, 1540, 1150}; // -45 0 45 degree 
+  //short servo_angles[3] = {1540, 1540, 1540}; // -45 0 45 degree 
   ultrasonic_servo.write(servo_angles[servo_position]);
 }
 
@@ -100,17 +117,35 @@ void print_sensors() {
 
 void reset_car() {
   if(car_is_crashed) {
+    disable_dist_int();
     motor1.setSpeed(MOTOR_SPEED);                 // Move motors at medium speed
     motor2.setSpeed(MOTOR_SPEED);
     motor1.backward();                            // Move motors backward to go out of collision
     motor2.backward();
     delay(BACKWARD_DELAY);                        // Move for 2.5s
+    enable_dist_int();
   }
   motor1.stop();                                // Stop Motor to wait next instruction
   motor2.stop();                                
   car_is_crashed  = false;
+  _lock_cmd = false;
   print_sensors();
   Serial.println("");
+}
+
+bool send_ultrasonic_measure(void *) {
+  if(send_result_time == 0.0)
+    return true;
+  if(send_result_time > millis())
+    return true;
+  for(int i = 0; i < 3; i++)
+    _partial_reward += (0.9 - ultrasonic_measures[i]) / 3.0;
+  print_sensors();
+  Serial.print(',');
+  Serial.println(_partial_reward,DEC);
+  send_result_time = 0.0;
+  _lock_cmd = false;
+  return true;
 }
 
 void step(int action) {  
@@ -120,6 +155,7 @@ void step(int action) {
     Serial.println(PENALTY_CRASH,DEC);
     motor1.stop();                                // Stop Left Motor
     motor2.stop();                                // Stop Left Motor
+    _lock_cmd = false;
     return;  
   }
     
@@ -144,15 +180,38 @@ void step(int action) {
       motor2.forward();                             // Enable Left motor     
     break;
   }
-  
-  timer.in(UTRASONIC_TIMING_MOVE*3, [](void*) -> bool {
-    for(int i = 0; i < 3; i++)
-      _partial_reward += (0.9 - ultrasonic_measures[i]) / 3.0;
-    print_sensors();
-    Serial.print(',');
-    Serial.println(_partial_reward,DEC);
-    return false;
-  });
+
+  send_result_time = millis() + 750;
+}
+
+bool handle_cmd(void *) {
+  if (Serial.available() > 0 && ! _lock_cmd) {
+    update_cmd_timer();
+    _lock_cmd = true;
+    int _cmd = Serial.parseInt();
+    switch(_cmd) {
+      case -1:
+        reset_car();
+      break;
+      case 0:
+      case 1:
+      case 2:
+        step(_cmd);
+      default:
+        _lock_cmd = false;  
+    }
+  }
+  return true;
+}
+
+void disable_dist_int() {
+  disableInterrupt(DIST_SENS_RIGHT_PIN);
+  disableInterrupt(DIST_SENS_LEFT_PIN);
+}
+
+void enable_dist_int() {
+  enableInterrupt(DIST_SENS_RIGHT_PIN, do_security_check, FALLING);
+  enableInterrupt(DIST_SENS_LEFT_PIN,  do_security_check, FALLING);
 }
 
 void setup() {
@@ -166,16 +225,20 @@ void setup() {
   pinMode(UTRASONIC_TRIG_PIN, OUTPUT);          // Set Ultrasonic trig port as input
   digitalWrite(UTRASONIC_TRIG_PIN, LOW);        // set trig port low
 
+  update_cmd_timer();
   _partial_reward = 0.0;
+  _lock_cmd = false;
   car_is_crashed = false;
+  send_result_time = 0.0;
   ultrasonic_servo.attach(UTRASONIC_SERVO_PIN); // Attaches the servo on pin 11
   move_servo();                                 // Move to middle position
 
-  enableInterrupt(DIST_SENS_RIGHT_PIN, check_if_crashed, FALLING);
-  enableInterrupt(DIST_SENS_LEFT_PIN,  check_if_crashed, FALLING);
+  enable_dist_int();
   
   timer.every(UTRASONIC_TIMING_MOVE, move_and_measure); // Start debug speed timer every  250 ms
-  timer.every(SAFETY_TIMING, check_if_crashed);         // Check every 50 ms if crashed
+  timer.every(SAFETY_TIMING, do_security_check);        // Check every 50 ms if crashed
+  timer.every(SAFETY_TIMING, send_ultrasonic_measure);  // Why 2nd timer in does not works ...
+  timer.every(HANDLE_CMD_TIMING, handle_cmd);           // Check every 10 ms if new command to handle
     
   motor1.stop();                                // Disable motor 
   motor2.stop();                                // Disable motor
@@ -183,17 +246,4 @@ void setup() {
 
 void loop() {
   timer.tick();                                 // tick the timer
-  if (Serial.available() > 0) {
-    int _cmd = Serial.parseInt();
-    switch(_cmd) {
-      case -1:
-        reset_car();
-      break;
-      case 0:
-      case 1:
-      case 2:
-        step(_cmd);
-    }
-    Serial.flush();
-  }
 }

@@ -8,18 +8,20 @@ You will find here the code for a series of posts following up on running neural
 
 ## Sources & Acknowledgments
 
-This project relies on the following articles:
+This project relies on the following ressources:
 
  * http://deeplizard.com/learn/video/nyjbcRQ-uQ8
  * https://github.com/keon/deep-q-learning
  * https://github.com/harvitronix/reinforcement-learning-car
+ * https://www.youtube.com/playlist?list=PL1P11yPQAo7pH9SWZtWdmmLumbp_r19Hs 
+ * https://subscription.packtpub.com/book/big_data_and_business_intelligence/9781788834247
 
 And use:
 
  * https://github.com/viblo/pymunk
+ * https://bitbucket.org/pyglet/pyglet/wiki/Home
  * https://github.com/keras-rl/keras-rl
  * https://github.com/openai/gym
- * https://github.com/codeplea/genann
 
 ## Step 0: Ultrasonic Scanner
 
@@ -39,11 +41,7 @@ Use the simulator and Keras-rl to train a neural network to drive the robot acco
 
 ## Step 4: Training Over BLE
 
-Execute the training locally in the computer but run the environement on an arduino linked in BLE.
-
-## Step 5: InVivo Reinforcement Learning
-
-... to do ...
+Execute the training locally in the computer but use the real robot to take actions and observe result over Bluetooth.
 
 ## Todo
 
