@@ -3,3 +3,4 @@ gym
 keras-rl
 theano
 pyserial
+tensorflow>=1.15 # not directly required, pinned by Snyk to avoid a vulnerability
