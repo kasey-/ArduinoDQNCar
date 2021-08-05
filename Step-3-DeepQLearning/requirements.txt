@@ -4,3 +4,4 @@ keras-rl
 theano
 pymunk
 pyglet
+keras>=2.6.0rc3 # not directly required, pinned by Snyk to avoid a vulnerability
