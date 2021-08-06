@@ -3,3 +3,4 @@ gym
 keras-rl
 theano
 pyserial
+keras>=2.6.0rc3 # not directly required, pinned by Snyk to avoid a vulnerability
